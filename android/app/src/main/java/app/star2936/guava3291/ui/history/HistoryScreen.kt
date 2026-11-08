@@ -1,0 +1,135 @@
+package app.star2936.guava3291.ui.history
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.star2936.guava3291.data.Track
+import app.star2936.guava3291.state.LocalPlayHistory
+import app.star2936.guava3291.state.PlayerManager
+import app.star2936.guava3291.ui.components.RemoteImage
+import app.star2936.guava3291.ui.components.StatusPlaceholder
+import app.star2936.guava3291.ui.theme.Background
+import app.star2936.guava3291.ui.theme.Card
+import app.star2936.guava3291.ui.theme.TextPrimary
+import app.star2936.guava3291.ui.theme.TextSecondary
+
+/** 播放历史页（本地 MRU，对应 iOS HistoryView + LocalPlayHistory） */
+@Composable
+fun HistoryScreen(onBack: () -> Unit) {
+    var items by remember { mutableStateOf<List<LocalPlayHistory.Item>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        // 本地历史：设备级、即时读取、离线可用（无网络请求，不做失败态）
+        items = LocalPlayHistory.load()
+        loading = false
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        // 顶栏
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 返回键统一样式：圆底 chevron（与全 App 一致，对齐 iOS NavBack）
+            Box(
+                Modifier.size(38.dp).clip(CircleShape).background(Card).clickable { onBack() },
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Filled.ArrowBack, null, tint = TextPrimary, modifier = Modifier.size(18.dp)) }
+            Spacer(Modifier.width(12.dp))
+            Text("播放历史", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        }
+
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator(color = TextSecondary)
+            }
+            items.isEmpty() -> StatusPlaceholder(text = "暂无播放历史", modifier = Modifier.fillMaxSize())
+            else -> LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
+            ) {
+                items(items) { h ->
+                    HistoryRow(h) {
+                        // 点击播放：以历史列表为队列、从点击曲开始（仅元数据本地构造，秒起播）
+                        val tracks = items.map { it.toTrack() }
+                        PlayerManager.applyFiniteList(h.toTrack(), tracks)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun LocalPlayHistory.Item.toTrack(): Track = Track(
+    id = id,
+    title = title,
+    artist = artist.takeIf { it.isNotEmpty() },
+    cover = cover.takeIf { it.isNotEmpty() },
+)
+
+@Composable
+private fun HistoryRow(item: LocalPlayHistory.Item, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (item.cover.isNotEmpty()) {
+            RemoteImage(
+                url = item.cover,
+                modifier = Modifier.size(48.dp),
+                cornerRadius = 8.dp,
+            )
+        } else {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(app.star2936.guava3291.R.drawable.app_logo),
+                null,
+                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.title, color = TextPrimary, fontSize = 15.sp, maxLines = 1, fontWeight = FontWeight.Medium)
+            Text(item.artist.ifEmpty { "未知歌手" }, color = TextSecondary, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}

@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>流萤音乐 · 后台管理</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f0f10;color:#eee;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;min-height:100vh}
+.login{max-width:360px;margin:15vh auto;background:#1a1a1c;padding:30px;border-radius:16px}
+.login h2{margin-bottom:18px;font-size:18px}
+.login input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2a2e;background:#111;color:#fff;margin-bottom:12px;font-size:14px}
+.login button{width:100%;padding:12px;border:0;border-radius:10px;background:#2a6df4;color:#fff;font-size:15px;cursor:pointer}
+.app{display:flex;min-height:100vh}
+.side{width:200px;background:#151517;padding:20px 0;flex-shrink:0}
+.side h2{font-size:15px;padding:0 20px 18px;border-bottom:1px solid #262629;margin-bottom:10px}
+.side button{display:block;width:100%;text-align:left;padding:11px 20px;background:none;border:0;color:#aaa;font-size:14px;cursor:pointer}
+.side button.on{color:#fff;background:#222226;border-left:3px solid #2a6df4}
+.main{flex:1;padding:24px 28px;overflow:auto;max-width:100%}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
+.card{background:#1a1a1c;padding:18px;border-radius:12px}
+.card .n{font-size:26px;font-weight:600;color:#fff}
+.card .l{font-size:12px;color:#888;margin-top:4px}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px}
+table{width:100%;border-collapse:collapse;background:#1a1a1c;font-size:13px;min-width:560px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid #262629;white-space:nowrap}
+th{color:#888;font-weight:500;background:#1f1f22}
+tr:last-child td{border-bottom:0}
+td.act button{background:#3a1f1f;color:#e06c5c;border:0;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px}
+td.act button.ok{background:#1e3a2a;color:#5cd68a}
+td.act button.gray{background:#2a2a2e;color:#ddd}
+.tag{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;background:#2a2a2e;color:#aaa}
+.tag.wy{background:#1e3a5f;color:#6fb1ff}
+.tag.kw{background:#3a2a1e;color:#ffb36b}
+.tag.off{background:#3a1f1f;color:#e06c5c}
+.tag.on{background:#1e3a2a;color:#5cd68a}
+.thumb{width:36px;height:36px;border-radius:6px;object-fit:cover;background:#222;vertical-align:middle}
+.empty{padding:30px;text-align:center;color:#555}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.topbar h1{font-size:18px}
+.topbar button{background:#2a2a2e;color:#aaa;border:0;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px}
+.hidden{display:none}
+.modal.hidden{display:none}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:99;padding:18px}
+.modal-box{background:#1a1a1c;border-radius:14px;width:100%;max-width:420px;max-height:84vh;overflow:auto;display:flex;flex-direction:column}
+.modal-h{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #262629;font-size:15px;font-weight:600;flex-shrink:0}
+.modal-h button{background:none;border:0;color:#888;font-size:20px;cursor:pointer;padding:0 6px}
+.modal-b{padding:16px;overflow:auto}
+.modal-f{display:flex;gap:10px;padding:14px 16px;border-top:1px solid #262629;flex-shrink:0}
+.modal-f .mbtn{flex:1;padding:11px;border:0;border-radius:10px;background:#2a2a2e;color:#eee;font-size:14px;cursor:pointer}
+.modal-f .m-save{background:#2a6df4;color:#fff}
+.frow{margin-bottom:12px}
+.frow label{display:block;font-size:12px;color:#888;margin-bottom:5px}
+.frow input,.frow select,.frow textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;outline:none}
+.frow textarea{resize:none}
+.avrow{display:flex;align-items:center;gap:10px}
+.avrow img{width:64px;height:64px;border-radius:10px;object-fit:cover;background:#222;flex-shrink:0}
+.avrow button{padding:8px 12px;border:0;border-radius:8px;background:#2a2a2e;color:#ddd;font-size:13px;cursor:pointer}
+.hint{font-size:11px;color:#666;margin-top:4px}
+@media (max-width:768px){
+  .app{flex-direction:column}
+  .side{width:100%;padding:0;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;border-bottom:1px solid #262629}
+  .side h2{display:none}
+  .side button{display:inline-block;width:auto;padding:13px 16px;border-left:0;border-bottom:3px solid transparent;white-space:nowrap}
+  .side button.on{border-left:0;border-bottom:3px solid #2a6df4;background:transparent}
+  .main{padding:14px 12px calc(20px + env(safe-area-inset-bottom))}
+  .cards{grid-template-columns:repeat(2,1fr);gap:10px}
+  .card{padding:14px}
+  .card .n{font-size:22px}
+  .topbar{margin-bottom:14px}
+  .topbar h1{font-size:16px}
+  table{font-size:12px;min-width:520px}
+  th,td{padding:10px 12px}
+  .login{margin:8vh 16px;padding:24px}
+}
+</style></head><body>
+<div id="loginBox" class="login">
+<h2>流萤音乐后台</h2>
+<input id="pwd" type="password" placeholder="管理密码">
+<button onclick="login()">登录</button>
+</div>
+<div id="appBox" class="app hidden">
+<div class="side">
+<h2>流萤音乐</h2>
+<button data-t="dash" class="on" onclick="tab('dash')">仪表盘</button>
+<button data-t="users" onclick="tab('users')">用户管理</button>
+<button data-t="tracks" onclick="tab('tracks')">上传歌曲</button>
+<button data-t="collected" onclick="tab('collected')">采集歌曲</button>
+<button data-t="comments" onclick="tab('comments')">评论管理</button>
+<button data-t="ann" onclick="tab('ann')">公告管理</button>
+<button data-t="notify" onclick="tab('notify')">官方通知</button>
+<button data-t="members" onclick="tab('members')">会员管理</button>
+<button data-t="verify" onclick="tab('verify')">认证管理</button>
+<button data-t="site" onclick="tab('site')">网站管理</button>
+<button data-t="rec" onclick="tab('rec')">推荐设置</button>
+</div>
+<div class="main">
+<div class="topbar"><h1 id="title">仪表盘</h1><div><button style="margin-right:8px" onclick="changePwd()">修改密码</button><button onclick="logout()">退出</button></div></div>
+<div id="content"></div>
+</div>
+</div>
+<div id="modal" class="modal hidden">
+<div class="modal-box">
+<div class="modal-h"><span id="mTitle">编辑</span><button onclick="closeModal()">×</button></div>
+<div id="mBody" class="modal-b"></div>
+<div class="modal-f"><button class="mbtn" onclick="closeModal()">取消</button><button class="mbtn m-save" id="mSaveBtn" onclick="mSave()">保存</button></div>
+</div>
+</div>
+<script>
+let token=localStorage.getItem('admin_token')||'';
+function h(){return token}
+function esc(s){return String(s==null?'':s).replace(/[&<>"'\\]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','\\':'&#92;'}[c])).replace(/\r?\n/g,'&#10;')}
+function fmtTime(ts){if(!ts)return '-';const d=new Date(ts*1000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function fmtDur(s){if(!s)return '-';s=Math.round(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+async function api(path, opts){
+  opts=opts||{};opts.headers=Object.assign({'X-Admin-Token':h()},opts.headers||{});
+  const r=await fetch('/music/api/admin'+path,opts);
+  if(r.status===401){showLogin();throw new Error('未授权，请重新登录')}
+  let d=null;try{d=await r.json()}catch(e){throw new Error('HTTP '+r.status)}
+  if(!r.ok||(d&&d.err))throw new Error((d&&d.err)||('HTTP '+r.status));
+  return d;
+}
+function showLogin(){token='';localStorage.removeItem('admin_token');document.getElementById('loginBox').classList.remove('hidden');document.getElementById('appBox').classList.add('hidden');}
+async function login(){
+  const pwd=document.getElementById('pwd').value.trim();
+  if(!pwd){alert('请输入管理密码');return}
+  token=pwd;
+  try{await api('/auth-check')}
+  catch(e){showLogin();alert('密码错误，请重试');return}
+  localStorage.setItem('admin_token',token);
+  document.getElementById('loginBox').classList.add('hidden');
+  document.getElementById('appBox').classList.remove('hidden');
+  alert('登录成功');
+  loadDash();
+}
+function logout(){showLogin()}
+function tab(t){
+  document.querySelectorAll('.side button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  const titles={dash:'仪表盘',users:'用户管理',tracks:'上传歌曲',collected:'采集歌曲',comments:'评论管理',ann:'公告管理',notify:'官方通知',members:'会员管理',verify:'认证管理',site:'网站管理',rec:'推荐设置'};
+  document.getElementById('title').textContent=titles[t];
+  if(t==='dash')loadDash();if(t==='users')loadUsers();if(t==='tracks')loadTracks();if(t==='collected')loadCollected();if(t==='comments')loadComments();if(t==='ann')loadAnn();if(t==='notify')loadNotify();if(t==='members')loadMembers();if(t==='verify')loadVerify();if(t==='site')loadSite();if(t==='rec')loadRecCfg();
+}
+let curPage={tracks:1,collected:1,comments:1};
+let curTracks=[],curCols=[];
+async function loadDash(){
+  const d=await api('/stats');
+  document.getElementById('content').innerHTML=
+    '<div class="cards">'+
+    '<div class="card"><div class="n">'+d.users+'</div><div class="l">用户总数</div></div>'+
+    '<div class="card"><div class="n">'+d.tracks+'</div><div class="l">用户上传歌曲</div></div>'+
+    '<div class="card"><div class="n">'+d.collected+'</div><div class="l">采集歌曲</div></div>'+
+    '<div class="card"><div class="n">'+d.plays+'</div><div class="l">累计播放次数</div></div>'+
+    '</div>';
+}
+// 网站管理：官网展示配置 + AI 接口配置（key/base/model）+ AI 评论人形象 + AI 主动评论控制
+async function loadSite(){
+  const [c,a,s,p,sad]=await Promise.all([
+    (await fetch('/music/api/site-config')).json(),
+    api('/ai-config'),
+    api('/ai-comment'),
+    api('/ai-profile'),
+    api('/splash-ads')
+  ]);
+  window._splashAds=(sad&&sad.list)||[];
+  const fld=(id,label,val,ph)=>(
+    '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">'+label+'</label>'+
+    '<input id="'+id+'" value="'+esc(val||'')+'" placeholder="'+ph+'" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>');
+  const keyPh=a.hasKey?('已配置（'+esc(a.keyMasked)+'），留空保持不变'):'填写 AI 接口 Key（必填）';
+  let h='<div style="max-width:780px">';
+  // 区块一：官网展示配置
+  window._banners=(c.banners||[]).map(b=>({name:b.name,title:b.title||'',link:b.link||''}));
+  h+='<div style="background:#1a1a1c;padding:24px;border-radius:12px;margin-bottom:16px">'+
+  '<h3 style="margin-bottom:6px;font-size:16px">官网展示配置</h3>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:18px">修改后即时生效到官网首页（歌曲总数为数据库实时统计，无需填写）。</p>'+
+  fld('siteName','网站名称',c.site_name,'流萤音乐')+
+  fld('heroSub','首页副标题',c.hero_subtitle,'一句话 slogan')+
+  fld('iosUrl','iOS 下载链接',c.ios_url,'https://...ipa 或 TestFlight 地址')+
+  fld('androidUrl','Android 下载链接',c.android_url,'https://...apk')+
+  '<div style="margin-top:20px;padding:14px;border:1px solid #262629;border-radius:10px">'+
+  '<h4 style="margin-bottom:10px;font-size:14px">关于页联系方式（App 内「关于」页展示，前端不再硬编码）</h4>'+
+  fld('aboutWebsite','官网链接',c.about_website||'','https://...')+
+  fld('aboutEmail','联系邮箱',c.about_email||'','name@example.com')+
+  fld('aboutPhone','联系电话',c.about_phone||'','手机号/QQ号')+
+  fld('aboutQqGroup','官方 QQ 群',c.about_qq_group||'','群号')+
+  '</div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">官网轮播图（数量不限，可增删排序）</label>'+
+  '<div id="bannerList" style="margin-bottom:10px"></div>'+
+  '<label style="font-size:13px;color:#888;cursor:pointer;padding:8px 12px;border:1px solid #2a2a2e;border-radius:8px;display:inline-block">＋ 上传轮播图<input id="bannerFile" type="file" accept="image/*" style="display:none" onchange="uploadBanner(this.files[0])"></label>'+
+  '<span id="bannerTip" style="margin-left:10px;font-size:12px;color:#888"></span></div>'+
+  '<div style="margin-top:20px;padding:14px;border:1px solid #262629;border-radius:10px">'+
+  '<h4 style="margin-bottom:10px;font-size:14px">App 启动页广告（每次启动随机展示一张，非轮播）</h4>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:12px">可上传多张，App 每次启动随机抽 1 张展示（5 秒后可跳过）。建议竖版图片（9:16），上传后立即生效。</p>'+
+  '<div id="splashList" style="margin-bottom:10px"></div>'+
+  '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+  '<input id="splashLink" type="text" placeholder="跳转链接（可选，如 https://example.com，填了广告才可点击跳转）" '+
+  'style="flex:1;min-width:0;background:#111;border:1px solid #2a2a2e;border-radius:8px;color:#eee;font-size:13px;padding:8px 10px;outline:none">'+
+  '</div>'+
+  '<label style="font-size:13px;color:#888;cursor:pointer;padding:8px 12px;border:1px solid #2a2a2e;border-radius:8px;display:inline-block">＋ 上传广告图<input id="splashFile" type="file" accept="image/*" style="display:none" onchange="uploadSplash(this.files[0])"></label>'+
+  '<span id="splashTip" style="margin-left:10px;font-size:12px;color:#888"></span></div>'+
+  '<div style="margin-top:20px;padding:14px;border:1px solid #262629;border-radius:10px">'+
+  '<h4 style="margin-bottom:10px;font-size:14px">易支付（App 内开通会员）</h4>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:12px">在易支付商户后台获取商户ID与密钥。填写后 App 内开通会员即可拉起易支付收银台；支付成功自动开通会员并在官方消息通知用户。回调地址会自动使用本站点 /api/pay/notify，一般无需填写。</p>'+
+  '<div style="margin-bottom:14px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer">'+
+  '<input type="checkbox" id="payEnabled" '+(c.pay_enabled?'checked':'')+' style="width:18px;height:18px;accent-color:#4CD9A5">'+
+  '<div style="font-size:14px;color:#fff">启用易支付</div></label></div>'+
+  fld('payMerchantId','商户ID（pid）',c.pay_merchant_id,'易支付商户后台的商户ID')+
+  fld('payMerchantKey','商户密钥（key）',c.pay_merchant_key,'易支付商户后台的密钥')+
+  fld('payGateway','支付网关地址',c.pay_gateway,'如 https://pay.xxx.com（会自动拼 /submit.php）')+
+  fld('payNotifyUrl','异步回调地址（可选）',c.pay_notify_url,'留空自动使用 当前站点/api/pay/notify')+
+  fld('payReturnUrl','同步跳转地址（可选）',c.pay_return_url,'留空自动使用 当前站点/api/pay/return')+
+  '<div style="margin-top:12px;padding:10px;background:#0f1215;border-radius:8px;border:1px solid #262629">'+
+  '<div style="font-size:12px;color:#9c9ca0;margin-bottom:8px">会员套餐价格与时长（App 开通页展示与下单金额以此为准）</div>'+
+  fld('vipMonthPrice','VIP 月卡（元）',c.vip_month_price,'默认 6 元 / 30 天')+
+  fld('vipMonthDays','VIP 月卡（天）',c.vip_month_days,'')+
+  fld('vipQuarterPrice','VIP 季卡（元）',c.vip_quarter_price,'默认 16 元 / 90 天')+
+  fld('vipQuarterDays','VIP 季卡（天）',c.vip_quarter_days,'')+
+  fld('vipYearPrice','VIP 年卡（元）',c.vip_year_price,'默认 48 元 / 365 天')+
+  fld('vipYearDays','VIP 年卡（天）',c.vip_year_days,'')+
+  fld('svipMonthPrice','SVIP 月卡（元）',c.svip_month_price,'默认 10 元 / 30 天')+
+  fld('svipMonthDays','SVIP 月卡（天）',c.svip_month_days,'')+
+  fld('svipQuarterPrice','SVIP 季卡（元）',c.svip_quarter_price,'默认 26 元 / 90 天')+
+  fld('svipQuarterDays','SVIP 季卡（天）',c.svip_quarter_days,'')+
+  fld('svipYearPrice','SVIP 年卡（元）',c.svip_year_price,'默认 68 元 / 365 天')+
+  fld('svipYearDays','SVIP 年卡（天）',c.svip_year_days,'')+
+  '</div>'+
+  '</div>'+
+  '<div style="margin-bottom:14px;padding:12px;background:#111;border-radius:8px;border:1px solid #2a2a2e">'+
+  '<label style="display:flex;align-items:center;gap:10px;cursor:pointer">'+
+  '<input type="checkbox" id="jpushEnabled" '+(c.jpush_enabled?'checked':'')+' style="width:18px;height:18px;accent-color:#4CD9A5">'+
+  '<div><div style="font-size:14px;color:#fff">极光离线推送</div>'+
+  '<div style="font-size:12px;color:#888;margin-top:2px">开启后，APP 被杀时收到点赞/评论/关注的系统通知（仅安卓）</div></div>'+
+  '</label></div>'+
+  '<button class="mbtn m-save" onclick="saveSite()">保存</button>'+
+  '<span id="siteTip" style="margin-left:12px;font-size:13px"></span>'+
+  '</div>';
+  // 区块二：AI 接口配置
+  h+='<div style="background:#1a1a1c;padding:24px;border-radius:12px;margin-bottom:16px">'+
+  '<h3 style="margin-bottom:6px;font-size:16px">AI 接口配置</h3>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:18px">AI 乐评接入（OpenAI 兼容接口）。Key 仅首次填写或更换时输入，留空保持不变；保存后即时生效，无需重启。</p>'+
+  fld('aiBase','接口地址（Base URL）',a.base,'https://.../v1')+
+  fld('aiModel','模型',a.model,'qwen-turbo')+
+  fld('aiKey','接口 Key','',keyPh)+
+  '<button class="mbtn m-save" onclick="saveAiKey()">保存</button>'+
+  '<span id="aiKeyTip" style="margin-left:12px;font-size:13px"></span>'+
+  '</div>';
+  // 区块三：AI 评论人形象
+  // 头像 URL 带文件名作版本号（?t=）：换头像后文件名变化 → URL 变化 → 浏览器缓存自动失效
+  const avUrl=p.avatar?(location.origin+'/music/api/avatar/ai_liuying_comment?t='+encodeURIComponent(p.avatar)):'';
+  const bgUrl=p.background?(location.origin+'/music/api/background/ai_liuying_comment?t='+encodeURIComponent(p.background)):'';
+  h+='<div style="background:#1a1a1c;padding:24px;border-radius:12px;margin-bottom:16px">'+
+  '<h3 style="margin-bottom:6px;font-size:16px">AI 评论人形象</h3>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:18px">设置 AI 评论显示的名称、头像、签名与主页背景图，保存后新评论与通知即时使用。</p>'+
+  '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'+
+  (avUrl?'<img src="'+avUrl+'" style="width:64px;height:64px;border-radius:50%;object-fit:cover;background:#222" onerror="this.style.visibility=\'hidden\'">':'<div style="width:64px;height:64px;border-radius:50%;background:#2a2a2e;display:flex;align-items:center;justify-content:center;color:#888;font-size:22px">'+esc((p.name||'AI')[0])+'</div>')+
+  '<label style="font-size:13px;color:#888;cursor:pointer;padding:8px 12px;border:1px solid #2a2a2e;border-radius:8px">上传头像<input id="aiAvatar" type="file" accept="image/*" style="display:none" onchange="document.getElementById(\'aiAvatarName\').textContent=this.files[0]?this.files[0].name:\'\'"></label>'+
+  '<span id="aiAvatarName" style="font-size:12px;color:#888"></span>'+
+  '</div>'+
+  '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'+
+  (bgUrl?'<img src="'+bgUrl+'" style="width:96px;height:54px;border-radius:8px;object-fit:cover;background:#222" onerror="this.style.visibility=\'hidden\'">':'<div style="width:96px;height:54px;border-radius:8px;background:#2a2a2e;display:flex;align-items:center;justify-content:center;color:#666;font-size:11px">无背景图</div>')+
+  '<label style="font-size:13px;color:#888;cursor:pointer;padding:8px 12px;border:1px solid #2a2a2e;border-radius:8px">上传背景图<input id="aiBg" type="file" accept="image/*" style="display:none" onchange="document.getElementById(\'aiBgName\').textContent=this.files[0]?this.files[0].name:\'\'"></label>'+
+  '<span id="aiBgName" style="font-size:12px;color:#888"></span>'+
+  '</div>'+
+  fld('aiName','名称',p.name,'AI 乐评')+
+  fld('aiSig','签名',p.signature,'一句话签名')+
+  '<div style="margin-top:20px;padding:14px;border:1px solid #262629;border-radius:10px">'+
+  '<h4 style="margin-bottom:10px;font-size:14px">AI 主动评论（自动定时给歌曲发评论）</h4>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">评论开关</label>'+
+  '<label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="aiCmEnabled" '+(s.settings&&s.settings.enabled!=='0'?'checked':'')+' style="width:18px;height:18px;accent-color:#4CD9A5"><div style="font-size:14px;color:#eee">开启 AI 定时评论</div></label></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">评论间隔（分钟，≥60）</label>'+
+  '<input id="aiCmInterval" type="number" min="60" value="'+(s.settings&&s.settings.interval||'')+'" placeholder="默认 120" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">单批评论条数（1-10）</label>'+
+  '<input id="aiCmCount" type="number" min="1" max="10" value="'+(s.settings&&s.settings.count||'')+'" placeholder="默认 2" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>'+
+  '<div style="margin-bottom:6px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">评论附带表情包图片</label>'+
+  '<label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="aiCmMeme" '+(s.settings&&s.settings.comment_image==='1'?'checked':'')+' style="width:18px;height:18px;accent-color:#4CD9A5"><div style="font-size:14px;color:#eee">AI 评论时随机附带一张表情包图片</div></label></div>'+
+  '</div>'+
+  '<button class="mbtn m-save" onclick="saveAiProfile()">保存形象</button>'+
+  '<span id="aiProfileTip" style="margin-left:12px;font-size:13px"></span>'+
+  '</div>';
+  // 区块四：AI 主动评论
+  const en1=s.enabled?' selected':'', en0=s.enabled?'':' selected';
+  h+='<div style="background:#1a1a1c;padding:24px;border-radius:12px">'+
+  '<h3 style="margin-bottom:6px;font-size:16px">AI 主动评论</h3>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:18px">后端定时为歌曲生成并发布 AI 乐评（评论账号：'+esc(p.name)+'），自动跳过近 '+s.skip_days+' 天已评过的歌曲。</p>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:14px">实时热梗：'+(s.hotPool&&s.hotPool.fetchedAt?('已抓取 '+s.hotPool.count+' 条（'+fmtTime(s.hotPool.fetchedAt)+'），示例：'+esc((s.hotPool.words||[]).slice(0,4).join('、'))):'暂不可用（不影响评论，纯乐评）')+'</p>'+
+  '<p style="font-size:12px;color:#888;margin-bottom:14px">表情包：'+(s.memeInfo?('每条 AI 评论 '+s.memeInfo.probPct+'% 概率附带一张随机表情包（'+(s.memeInfo.endpoint||'').replace('https://','').split('/')[0]+'），下载到本地后作为图片评论'):'未启用')+'</p>'+
+  '<div class="cards" style="margin-bottom:16px">'+
+  '<div class="card"><div class="n">'+s.aiCommentTotal+'</div><div class="l">AI 乐评总数</div></div>'+
+  '<div class="card"><div class="n">'+s.okToday+'</div><div class="l">今日主动评论</div></div>'+
+  '<div class="card"><div class="n">'+s.okTotal+'</div><div class="l">累计成功</div></div>'+
+  '<div class="card"><div class="n">'+s.failTotal+'</div><div class="l">累计失败</div></div>'+
+  '<div class="card"><div class="n">'+(s.lastRun?fmtTime(s.lastRun):'-')+'</div><div class="l">上次执行</div></div>'+
+  '</div>'+
+  '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:16px">'+
+  '<label style="font-size:13px;color:#888">自动开关 <select id="aiEnabled" style="padding:8px 10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px"><option value="1"'+en1+'>开启</option><option value="0"'+en0+'>关闭</option></select></label>'+
+  '<label style="font-size:13px;color:#888">间隔(秒) <input id="aiInterval" type="number" value="'+s.interval+'" min="300" style="width:110px;padding:8px 10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px"></label>'+
+  '<label style="font-size:13px;color:#888">每轮首数 <input id="aiCount" type="number" value="'+s.count+'" min="1" max="10" style="width:90px;padding:8px 10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px"></label>'+
+  '<label style="font-size:13px;color:#888">单曲上限 <input id="aiMaxPer" type="number" value="'+s.max_per_track+'" min="1" max="5" style="width:90px;padding:8px 10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px"></label>'+
+  '<label style="font-size:13px;color:#888">跳过天数 <input id="aiSkipDays" type="number" value="'+s.skip_days+'" min="1" style="width:90px;padding:8px 10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px"></label>'+
+  '<button class="mbtn m-save" onclick="saveAiCfg()">保存配置</button>'+
+  '<button class="mbtn" onclick="runAiNow()">立即评论 2 首</button>'+
+  '</div>'+
+  '<div class="tablewrap"><table><tr><th>时间</th><th>类型</th><th>歌曲</th><th>状态</th><th>原因/评论 ID</th></tr>';
+  if(!s.logs||!s.logs.length)h+='<tr><td colspan="5" class="empty">暂无执行记录（保存配置或点「立即评论」开始）</td></tr>';
+  (s.logs||[]).forEach(l=>{
+    h+='<tr><td style="font-size:11px;color:#888">'+fmtTime(l.created)+'</td><td>'+(l.runType==='manual'?'手动':'定时')+'</td><td>'+esc(l.trackTitle)+'</td><td>'+(l.status==='ok'?'<span class="tag on">成功</span>':'<span class="tag off">失败</span>')+'</td><td style="font-size:12px;color:#888">'+esc(l.status==='ok'?('评论ID '+l.commentId):(l.reason||'生成失败'))+'</td></tr>';
+  });
+  h+='</table></div>'+
+  '</div></div>';
+  document.getElementById('content').innerHTML=h;
+  renderBanners();
+  renderSplashAds();
+}
+// ---- App 启动页广告管理（每次启动随机展示一张，非轮播） ----
+function renderSplashAds(){
+  const el=document.getElementById('splashList');if(!el)return;
+  const bs=window._splashAds||[];
+  if(!bs.length){el.innerHTML='<div style="font-size:12px;color:#666;padding:10px 0">暂无广告，上传一张后 App 启动页即随机展示。</div>';return;}
+  el.innerHTML=bs.map(b=>
+    '<div style="display:flex;gap:10px;align-items:center;background:#111;border:1px solid #2a2a2e;border-radius:10px;padding:8px;margin-bottom:8px">'+
+    '<img src="/music/api/splash/'+esc(b.name)+'" style="width:44px;height:78px;object-fit:cover;border-radius:6px;background:#222;flex-shrink:0" onerror="this.style.opacity=0.25">'+
+    '<div style="flex:1;min-width:0">'+
+    '<div style="font-size:13px;color:#eee;margin-bottom:4px">'+esc(b.title||'(无标题)')+'</div>'+
+    '<div style="display:flex;gap:6px;align-items:center;margin-top:4px">'+
+    '<input id="slink_'+b.id+'" type="text" value="'+esc(b.link||'')+'" placeholder="跳转链接" '+
+    'style="flex:1;min-width:0;background:#161618;border:1px solid #2a2a2e;border-radius:6px;color:#eee;font-size:12px;padding:5px 8px;outline:none">'+
+    '<button class="mbtn" style="padding:5px 10px;font-size:12px;color:#4CD9A5" onclick="saveSplashLink('+b.id+')">存</button>'+
+    '</div>'+
+    '<div style="font-size:11px;color:#888;margin-top:4px">ID '+b.id+' · '+(b.active?'启用':'停用')+'</div>'+
+    '</div>'+
+    '<button class="mbtn" style="padding:5px 8px;font-size:12px;color:#ff6b6b" onclick="delSplash('+b.id+')">删</button>'+
+    '</div>').join('');
+}
+async function saveSplashLink(id){
+  const inp=document.getElementById('slink_'+id);
+  if(!inp)return;
+  const link=(inp.value||'').trim();
+  try{
+    const fd=new FormData();fd.append('link',link);
+    await api('/splash-ads/'+id,{method:'POST',body:fd});
+    const b=window._splashAds.find(x=>x.id===id);
+    if(b)b.link=link;
+    renderSplashAds();
+  }catch(e){alert('保存失败：'+e.message);}
+}
+async function uploadSplash(file){
+  const tip=document.getElementById('splashTip');
+  if(!file){return;}
+  if(!/image\/(png|jpe?g|webp|heic)$/i.test(file.type)){tip.textContent='仅支持 png/jpg/webp/heic';return;}
+  const fd=new FormData();fd.append('image',file);
+  const linkEl=document.getElementById('splashLink');
+  if(linkEl&&linkEl.value.trim())fd.append('link',linkEl.value.trim());
+  try{
+    const r=await api('/splash-ads',{method:'POST',body:fd});
+    if(r&&r.name){
+      const link=(linkEl?linkEl.value.trim():'');
+      (window._splashAds=window._splashAds||[]).push({id:r.id,name:r.name,title:'',link:link,active:1});
+      renderSplashAds();
+      tip.textContent='已上传 ✓（下次启动随机展示）';tip.style.color='#4CD9A5';
+      document.getElementById('splashFile').value='';
+      if(linkEl)linkEl.value='';
+    }else{tip.textContent='上传失败';}
+  }catch(e){tip.textContent='上传失败：'+e.message;}
+}
+async function delSplash(id){
+  if(!confirm('删除这张启动页广告？'))return;
+  try{
+    await api('/splash-ads/'+id,{method:'DELETE'});
+    window._splashAds=(window._splashAds||[]).filter(b=>b.id!==id);
+    renderSplashAds();
+  }catch(e){alert('删除失败：'+e.message);}
+}
+async function saveSite(){
+  const body={site_name:document.getElementById('siteName').value,
+              hero_subtitle:document.getElementById('heroSub').value,
+              ios_url:document.getElementById('iosUrl').value,
+              android_url:document.getElementById('androidUrl').value,
+              jpush_enabled:document.getElementById('jpushEnabled').checked,
+              about_website:document.getElementById('aboutWebsite').value,
+              about_email:document.getElementById('aboutEmail').value,
+              about_phone:document.getElementById('aboutPhone').value,
+              about_qq_group:document.getElementById('aboutQqGroup').value,
+              pay_enabled:document.getElementById('payEnabled').checked,
+              pay_merchant_id:document.getElementById('payMerchantId').value,
+              pay_merchant_key:document.getElementById('payMerchantKey').value,
+              pay_gateway:document.getElementById('payGateway').value,
+              pay_notify_url:document.getElementById('payNotifyUrl').value,
+              pay_return_url:document.getElementById('payReturnUrl').value,
+              vip_month_price:parseFloat(document.getElementById('vipMonthPrice').value)||0,
+              vip_month_days:parseInt(document.getElementById('vipMonthDays').value)||0,
+              vip_quarter_price:parseFloat(document.getElementById('vipQuarterPrice').value)||0,
+              vip_quarter_days:parseInt(document.getElementById('vipQuarterDays').value)||0,
+              vip_year_price:parseFloat(document.getElementById('vipYearPrice').value)||0,
+              vip_year_days:parseInt(document.getElementById('vipYearDays').value)||0,
+              svip_month_price:parseFloat(document.getElementById('svipMonthPrice').value)||0,
+              svip_month_days:parseInt(document.getElementById('svipMonthDays').value)||0,
+              svip_quarter_price:parseFloat(document.getElementById('svipQuarterPrice').value)||0,
+              svip_quarter_days:parseInt(document.getElementById('svipQuarterDays').value)||0,
+              svip_year_price:parseFloat(document.getElementById('svipYearPrice').value)||0,
+              svip_year_days:parseInt(document.getElementById('svipYearDays').value)||0,
+              banners:(window._banners||[])};
+  await api('/site-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const aiB={};
+  aiB.enabled=document.getElementById('aiCmEnabled').checked?'1':'0';
+  const iv=parseInt(document.getElementById('aiCmInterval').value||'0',10);
+  if(iv>=60)aiB.interval=iv;
+  const ct=parseInt(document.getElementById('aiCmCount').value||'0',10);
+  if(ct>=1&&ct<=10)aiB.count=ct;
+  aiB.comment_image=document.getElementById('aiCmMeme').checked?'1':'0';
+  try{await api('/ai-comment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(aiB)})}catch(e){console.warn('ai-comment save:',e)}
+  document.getElementById('siteTip').textContent='已保存 ✓';
+  document.getElementById('siteTip').style.color='#4CD9A5';
+}
+// ---- 官网轮播图管理（动态数量，可增删排序） ----
+function renderBanners(){
+  const el=document.getElementById('bannerList');if(!el)return;
+  const bs=window._banners||[];
+  el.innerHTML=bs.map((b,i)=>
+    '<div style="display:flex;gap:10px;align-items:center;background:#111;border:1px solid #2a2a2e;border-radius:10px;padding:8px;margin-bottom:8px">'+
+    '<img src="/music/api/banner/'+esc(b.name)+'" style="width:76px;height:44px;object-fit:cover;border-radius:6px;background:#222;flex-shrink:0" onerror="this.style.opacity=0.25">'+
+    '<div style="flex:1;min-width:0">'+
+    '<input data-b="'+i+'" data-k="title" value="'+esc(b.title)+'" placeholder="标题（可选）" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #2a2a2e;background:#161619;color:#fff;font-size:12px;margin-bottom:6px;box-sizing:border-box">'+
+    '<input data-b="'+i+'" data-k="link" value="'+esc(b.link)+'" placeholder="点击跳转链接（可选，留空不跳）" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #2a2a2e;background:#161619;color:#fff;font-size:12px;box-sizing:border-box">'+
+    '</div>'+
+    '<button class="mbtn" style="padding:5px 8px;font-size:12px" onclick="mvBanner('+i+',-1)">↑</button>'+
+    '<button class="mbtn" style="padding:5px 8px;font-size:12px" onclick="mvBanner('+i+',1)">↓</button>'+
+    '<button class="mbtn" style="padding:5px 8px;font-size:12px;color:#ff6b6b" onclick="delBanner('+i+')">删</button>'+
+    '</div>').join('');
+  el.querySelectorAll('input[data-b]').forEach(inp=>{
+    inp.addEventListener('input',()=>{const b=window._banners[+inp.dataset.b];if(b)b[inp.dataset.k]=inp.value;});
+  });
+}
+function mvBanner(i,d){
+  const bs=window._banners;const j=i+d;
+  if(!bs||j<0||j>=bs.length)return;
+  const t=bs[i];bs[i]=bs[j];bs[j]=t;renderBanners();saveSite();
+}
+function delBanner(i){
+  const bs=window._banners;if(!bs)return;
+  bs.splice(i,1);renderBanners();saveSite();
+}
+async function uploadBanner(file){
+  const tip=document.getElementById('bannerTip');
+  if(!file){return;}
+  if(!/image\/(png|jpe?g|webp|heic)$/i.test(file.type)){tip.textContent='仅支持 png/jpg/webp/heic';return;}
+  const fd=new FormData();fd.append('image',file);
+  try{
+    const r=await api('/banner',{method:'POST',body:fd});
+    if(r&&r.name){
+      (window._banners=window._banners||[]).push({name:r.name,title:'',link:''});
+      renderBanners();
+      await saveSite();
+      tip.textContent='已上传并保存 ✓';tip.style.color='#4CD9A5';
+      document.getElementById('bannerFile').value='';
+    }else{tip.textContent='上传失败';}
+  }catch(e){tip.textContent='上传失败：'+e.message;}
+}
+async function saveAiKey(){
+  const body={base:document.getElementById('aiBase').value,
+              model:document.getElementById('aiModel').value,
+              key:document.getElementById('aiKey').value};
+  await api('/ai-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('aiKeyTip').textContent='已保存 ✓（新配置即时生效）';
+  document.getElementById('aiKeyTip').style.color='#4CD9A5';
+  loadSite();
+}
+async function saveAiProfile(){
+  const fd=new FormData();
+  fd.append('name',document.getElementById('aiName').value);
+  fd.append('signature',document.getElementById('aiSig').value);
+  const av=document.getElementById('aiAvatar').files[0];
+  if(av)fd.append('avatar',av);
+  const bg=document.getElementById('aiBg').files[0];
+  if(bg)fd.append('background',bg);
+  const r=await fetch('/music/api/admin/ai-profile',{method:'POST',headers:{'X-Admin-Token':h()},body:fd});
+  if(r.status===401){logout();throw new Error('未授权')}
+  document.getElementById('aiProfileTip').textContent='已保存 ✓（新评论即时生效）';
+  document.getElementById('aiProfileTip').style.color='#4CD9A5';
+  loadSite();
+}
+async function saveAiCfg(){
+  const body={enabled:document.getElementById('aiEnabled').value,
+    interval:parseInt(document.getElementById('aiInterval').value)||3600,
+    count:parseInt(document.getElementById('aiCount').value)||2,
+    max_per_track:parseInt(document.getElementById('aiMaxPer').value)||2,
+    skip_days:parseInt(document.getElementById('aiSkipDays').value)||7};
+  await api('/ai-comment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  loadSite();
+}
+async function runAiNow(){
+  if(!confirm('立即触发 AI 主动评论（2 首，忽略关闭状态）？'))return;
+  const d=await api('/ai-comment/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({count:2,force:true})});
+  alert('成功 '+d.ok_count+' 首，失败 '+d.fail_count+' 首'+(d.skipped?('（'+d.skipped+'）'):''));
+  loadSite();
+}
+async function loadUsers(){
+  const d=await api('/users');
+  let h='<div class="tablewrap"><table><tr><th>头像</th><th>昵称</th><th>账号</th><th>头衔</th><th>性别</th><th>年龄</th><th>签名</th><th>IP/地区</th><th>设备</th><th>在线</th><th>状态</th><th>操作</th></tr>';
+  if(!d.list.length)h+='<tr><td colspan="12" class="empty">无用户</td></tr>';
+  d.list.forEach(u=>{
+    const av=u.avatar?'<img src="'+location.origin+'/music/api/avatar/'+u.id+'" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222" onerror="this.style.visibility=\'hidden\'">':'<div style="width:36px;height:36px;border-radius:50%;background:#2a2a2e;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px">'+esc((u.name||'?')[0])+'</div>';
+    const st=u.banned?'<span class="tag off" title="'+esc(u.ban_reason||'')+'">已封禁</span>':'<span class="tag on">正常</span>';
+    const dev=u.platform==='android'?'<span style="font-size:12px">🤖 安卓</span>':(u.platform==='ios'?'<span style="font-size:12px">🍎 苹果</span>':'<span style="font-size:12px;color:#666">未上报</span>');
+    const ol=u.is_online?'<span class="tag on">在线</span>':'<span class="tag off">离线</span>';
+    const tl=u.title?'<span style="display:inline-block;padding:2px 10px;border-radius:999px;background:linear-gradient(135deg,rgba(42,109,244,.25),rgba(120,90,250,.25));border:1px solid rgba(42,109,244,.4);color:#9db8ff;font-size:12px">'+esc(u.title)+'</span>':'<span style="color:#555">-</span>';
+    h+='<tr><td>'+av+'</td><td>'+esc(u.name)+'</td><td>'+esc(u.account)+'</td><td>'+tl+'</td><td>'+(esc(u.gender)||'-')+'</td><td>'+(u.age||'-')+'</td><td style="max-width:140px;overflow:hidden;text-overflow:ellipsis">'+esc(u.signature||'-')+'</td><td style="font-size:11px;color:#888">'+esc(u.ip||'-')+'</td><td>'+dev+'</td><td>'+ol+'</td><td>'+st+'</td><td class="act"><button class="gray" onclick="editUser(\''+u.id+'\')">编辑</button> <button class="gray" onclick="giftTitle(\''+u.id+'\',\''+esc((u.title||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"))+'\')">赠头衔</button> '+(u.banned?'<button class="ok" onclick="unbanUser(\''+u.id+'\')">解封</button>':'<button onclick="banUser(\''+u.id+'\')">封禁</button>')+' <button onclick="delUser(\''+u.id+'\')">删除</button></td></tr>';
+  });
+  document.getElementById('content').innerHTML=h+'</table></div>';
+}
+async function giftTitle(uid,cur){
+  const t=(prompt('输入要赠送的头衔名称（留空并确定 = 移除当前头衔）。当前头衔：'+(cur||'无'),cur)||'').trim();
+  if(t===cur){alert('头衔未变化');return}
+  const r=await api('/user-title',{method:'POST',body:JSON.stringify({userId:uid,title:t})});
+  if(r.ok){alert(t?'已赠送头衔「'+t+'」，用户将在官方消息中收到通知':'已移除头衔，用户将在官方消息中收到通知');loadUsers();}
+  else alert(r.err||'操作失败');
+}
+async function loadComments(page){
+  if(page)curPage.comments=page;else curPage.comments=1;
+  const d=await api('/comments?page='+curPage.comments+'&size=20');
+  let h='<div class="tablewrap"><table><tr><th>评论者</th><th>评论内容</th><th>所属歌曲</th><th>时间</th><th>操作</th></tr>';
+  if(!d.list.length)h+='<tr><td colspan="5" class="empty">无评论</td></tr>';
+  d.list.forEach(c=>{
+    h+='<tr><td>'+esc(c.user)+'</td><td style="white-space:normal;max-width:260px">'+esc(c.content)+'</td><td>'+esc(c.track_title)+'</td><td style="font-size:11px;color:#888">'+fmtTime(c.created)+'</td><td class="act"><button onclick="delComment('+c.id+')">删除</button></td></tr>';
+  });
+  h+='</table></div>';
+  h+=pager(curPage.comments,d.total,'loadComments');
+  document.getElementById('content').innerHTML=h;
+}
+async function loadAnn(){
+  const h=
+  '<div style="max-width:600px">'+
+  '<div style="background:#1a1a1c;padding:24px;border-radius:12px;margin-bottom:16px">'+
+  '<h3 style="margin-bottom:16px;font-size:16px">发布新通知</h3>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">类型</label>'+
+  '<select id="annType" onchange="onAnnTypeChange()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box">'+
+  '<option value="announcement">公告通知</option>'+
+  '<option value="update">更新通知</option>'+
+  '</select></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">标题</label>'+
+  '<input id="annTitle" placeholder="通知标题" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">内容</label>'+
+  '<textarea id="annContent" rows="5" placeholder="通知内容" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box;resize:vertical"></textarea></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">版本号（可选）</label>'+
+  '<input id="annVersion" placeholder="如 v1.2.0" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>'+
+  '<div id="updateFields" style="display:none">'+
+  '<div style="display:flex;gap:10px;margin-bottom:14px">'+
+  '<div style="flex:1"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">苹果版本号</label>'+
+  '<input id="annVersionIos" placeholder="如 1.1.44，留空用上方版本号" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>'+
+  '<div style="flex:1"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">安卓版本号</label>'+
+  '<input id="annVersionAndroid" placeholder="如 1.1.24，留空用上方版本号" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">苹果安装包（iOS 更新链接：上传 IPA 或填自定义链接）</label>'+
+  '<input id="annUrlIos" placeholder="https://... 或点下方上传自动填入" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box;margin-bottom:8px">'+
+  '<button onclick="uploadPackage(\'ios\')" style="width:100%;padding:9px;border:0;border-radius:8px;background:#1f2b3a;color:#9ecbff;font-size:13px;cursor:pointer">上传 IPA 安装包（≤100MB）</button></div>'+
+  '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">安卓安装包（Android 更新链接：上传 APK 或填自定义链接）</label>'+
+  '<input id="annUrlAndroid" placeholder="https://... 或点下方上传自动填入" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box;margin-bottom:8px">'+
+  '<button onclick="uploadPackage(\'android\')" style="width:100%;padding:9px;border:0;border-radius:8px;background:#1f2b3a;color:#9ecbff;font-size:13px;cursor:pointer">上传 APK 安装包（≤100MB）</button></div>'+
+  '<div style="margin-bottom:14px"><label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#ccc;cursor:pointer">'+
+  '<input type="checkbox" id="annForceUpdate" style="width:16px;height:16px"> 强制更新（用户不能取消，必须更新）</label></div>'+
+  '</div>'+
+  '<div style="margin-bottom:18px"><label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#ccc;cursor:pointer">'+
+  '<input type="checkbox" id="annShowOnce" style="width:16px;height:16px"> 只弹一次（用户点过确认后不再弹，直到内容更新）</label></div>'+
+  '<button onclick="submitAnn()" style="width:100%;padding:12px;border:0;border-radius:10px;background:#2a6df4;color:#fff;font-size:15px;cursor:pointer">发布</button>'+
+  '</div>'+
+  '<div style="background:#1a1a1c;padding:20px;border-radius:12px;font-size:13px;color:#888;line-height:1.8">'+
+  '<b style="color:#ccc">说明：</b><br>'+
+  '• <b>公告通知</b>：普通公告，用户可关闭，半屏弹窗<br>'+
+  '• <b>更新通知</b>：版本更新提示，苹果/安卓安装包分开上传（≤100MB）或填自定义链接<br>'+
+  '• 强制更新：用户只能点"去更新"，不能取消<br>'+
+  '• 非强制更新：用户可点"以后再说"取消<br>'+
+  '• 最新一条通知会覆盖之前的，App 只展示最新一条'+
+  '</div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+function onAnnTypeChange(){
+  const t=document.getElementById('annType').value;
+  document.getElementById('updateFields').style.display=(t==='update')?'block':'none';
+}
+async function uploadPackage(platform){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept=platform==='ios'?'.ipa':'.apk';
+  input.onchange=async ()=>{
+    const f=input.files[0];
+    if(!f)return;
+    if(f.size>100*1024*1024){alert('安装包不能超过 100MB');return;}
+    const fd=new FormData();
+    fd.append('platform',platform);
+    fd.append('file',f);
+    try{
+      const r=await fetch('/music/api/admin/upload-package',{method:'POST',headers:{'X-Admin-Token':token},body:fd});
+      const d=await r.json();
+      if(r.ok&&d.url){
+        document.getElementById(platform==='ios'?'annUrlIos':'annUrlAndroid').value=location.origin+d.url;
+        alert('上传成功');
+      }else{alert(d.err||'上传失败');}
+    }catch(e){alert('网络错误');}
+  };
+  input.click();
+}
+async function submitAnn(){
+  const title=document.getElementById('annTitle').value.trim();
+  const content=document.getElementById('annContent').value.trim();
+  const version=document.getElementById('annVersion').value.trim();
+  const type=document.getElementById('annType').value;
+  const showOnce=document.getElementById('annShowOnce').checked?1:0;
+  const forceUpdate=document.getElementById('annForceUpdate').checked?1:0;
+  const downloadUrlIos=document.getElementById('annUrlIos').value.trim();
+  const downloadUrlAndroid=document.getElementById('annUrlAndroid').value.trim();
+  const versionIos=(document.getElementById('annVersionIos')||{value:''}).value.trim();
+  const versionAndroid=(document.getElementById('annVersionAndroid')||{value:''}).value.trim();
+  if(!title||!content){alert('请填写标题和内容');return;}
+  if(type==='update'&&!downloadUrlIos&&!downloadUrlAndroid){alert('更新通知需要填写至少一个平台的安装包或链接');return;}
+  try{
+    const r=await fetch('/music/api/admin/announcement',{method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':token},body:JSON.stringify({title,content,version,versionIos,versionAndroid,type,showOnce,forceUpdate,downloadUrl:downloadUrlIos,downloadUrlIos,downloadUrlAndroid})});
+    if(r.ok){alert('发布成功');loadAnn();}
+    else{alert('发布失败');}
+  }catch(e){alert('网络错误');}
+}
+async function loadTracks(page){
+  if(page)curPage.tracks=page;
+  const d=await api('/tracks?page='+curPage.tracks+'&size=20');
+  curTracks=d.list||[];
+  let h='<div class="tablewrap"><table><tr><th>封面</th><th>标题</th><th>歌手</th><th>状态</th><th>上传者</th><th>播放</th><th>操作</th></tr>';
+  if(!d.list.length)h+='<tr><td colspan="7" class="empty">无歌曲</td></tr>';
+  d.list.forEach(t=>{
+    const st=t.offline?'<span class="tag off">已下架</span>':'<span class="tag on">在售</span>';
+    h+='<tr><td><img class="thumb" src="'+location.origin+'/music/api/cover/'+t.id+'" onerror="this.style.visibility=\'hidden\'"></td><td>'+esc(t.title)+'</td><td>'+esc(t.artist)+'</td><td>'+st+'</td><td>'+esc(t.uname||'-')+'</td><td>'+t.play_count+'</td><td class="act"><button class="gray" onclick="editTrack(\''+t.id+'\')">编辑</button> '+(t.offline?'<button class="ok" onclick="onlineTrack('+t.id+')">上架</button>':'<button onclick="offlineTrack('+t.id+')">下架</button>')+' <button onclick="delTrack('+t.id+')">删除</button></td></tr>';
+  });
+  h+='</table></div>';
+  h+=pager(curPage.tracks,d.total,'loadTracks');
+  document.getElementById('content').innerHTML=h;
+}
+async function loadCollected(page){
+  if(page)curPage.collected=page;
+  const d=await api('/collected?page='+curPage.collected+'&size=20');
+  curCols=d.list||[];
+  let h='<div class="tablewrap"><table><tr><th>封面</th><th>标题</th><th>歌手</th><th>来源</th><th>状态</th><th>操作</th></tr>';
+  if(!d.list.length)h+='<tr><td colspan="6" class="empty">无歌曲</td></tr>';
+  d.list.forEach(t=>{
+    const st=t.offline?'<span class="tag off">已下架</span>':'<span class="tag on">在售</span>';
+    h+='<tr><td><img class="thumb" src="'+location.origin+'/music/api/cover/'+t.id+'" onerror="this.style.visibility=\'hidden\'"></td><td>'+esc(t.title)+'</td><td>'+esc(t.artist)+'</td><td><span class="tag '+t.source+'">'+t.source+'</span></td><td>'+st+'</td><td class="act"><button class="gray" onclick="editCol(\''+t.id+'\')">编辑</button> '+(t.offline?'<button class="ok" onclick="onlineCol('+t.id+')">上架</button>':'<button onclick="offlineCol('+t.id+')">下架</button>')+' <button onclick="delCol('+t.id+')">删除</button></td></tr>';
+  });
+  h+='</table></div>';
+  h+=pager(curPage.collected,d.total,'loadCollected');
+  document.getElementById('content').innerHTML=h;
+}
+function pager(page,total,fn){
+  const pages=Math.ceil(total/20);
+  let h='<div style="display:flex;justify-content:center;gap:10px;margin-top:16px;align-items:center">';
+  h+='<button style="background:#2a2a2e;color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer" onclick="'+fn+'('+(page>1?page-1:1)+')" '+(page<=1?'disabled':'')+'>上一页</button>';
+  h+='<span style="color:#888;font-size:13px">第 '+page+' / '+pages+' 页（共'+total+'首）</span>';
+  h+='<button style="background:#2a2a2e;color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer" onclick="'+fn+'('+(page<pages?page+1:pages)+')" '+(page>=pages?'disabled':'')+'>下一页</button>';
+  return h+'</div>';
+}
+// ---------- 模态框编辑 ----------
+let mState={type:'user',id:'',fields:{},onSave:null};
+function openModal(title,body,state){mState=state;document.getElementById('mTitle').textContent=title;document.getElementById('mBody').innerHTML=body;document.getElementById('modal').classList.remove('hidden');}
+function closeModal(){document.getElementById('modal').classList.add('hidden');}
+async function mSave(){const b=document.getElementById('mSaveBtn');b.disabled=true;try{await mState.onSave()}catch(e){alert('保存失败：'+e)}b.disabled=false;}
+function pickImg(input,key){
+  const f=input.files&&input.files[0];if(!f)return;
+  if(f.size>3*1024*1024){alert('图片不能超过 3MB');input.value='';return}
+  const r=new FileReader();
+  r.onload=()=>{
+    mState.fields[key]=r.result;
+    const img=document.getElementById(key==='avatar'?'pvAvatar':'pvCover');
+    if(img){img.style.visibility='visible';img.src=r.result}
+  };
+  r.readAsDataURL(f);
+}
+async function editUser(id){
+  const u=(await api('/users')).list.find(x=>x.id===id);if(!u)return;
+  openModal('编辑用户 · '+esc(u.account),'<div class="frow"><label>头像</label><div class="avrow"><img id="pvAvatar" src="'+location.origin+'/music/api/avatar/'+id+'" onerror="this.style.visibility=\'hidden\'"><button type="button" onclick="document.getElementById(\'fiAvatar\').click()">更换头像</button></div><input type="file" id="fiAvatar" accept="image/*" class="hidden" onchange="pickImg(this,\'avatar\')"><div class="hint">点击更换，支持 jpg/png/webp，≤3MB</div></div><div class="frow"><label>昵称</label><input id="fName" value="'+esc(u.name)+'"></div><div class="frow"><label>性别</label><select id="fGender"><option value="">保密</option><option value="男"'+(u.gender==='男'?' selected':'')+'>男</option><option value="女"'+(u.gender==='女'?' selected':'')+'>女</option></select></div><div class="frow"><label>年龄</label><input id="fAge" type="number" min="1" max="120" value="'+(u.age||'')+'"></div><div class="frow"><label>签名</label><textarea id="fSig" rows="2">'+esc(u.signature||'')+'</textarea></div><div class="frow"><label>新密码</label><input id="fPwd" type="password" placeholder="留空则不修改"><div class="hint">留空保持原密码不变</div></div>',
+    {type:'user',id:id,fields:{avatar:null},onSave:saveUser});
+
+}
+async function saveUser(){
+  const fd={};
+  const nm=document.getElementById('fName').value.trim();
+  const g=document.getElementById('fGender').value;
+  const ag=document.getElementById('fAge').value.trim();
+  const sg=document.getElementById('fSig').value.trim();
+  const pw=document.getElementById('fPwd').value.trim();
+  fd.name=nm;fd.gender=g;fd.age=ag;fd.signature=sg;
+  if(pw)fd.password=pw;
+  if(mState.fields.avatar)fd.avatar=mState.fields.avatar;
+  await api('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'user',id:mState.id,fields:fd})});
+  closeModal();loadUsers();
+}
+async function editTrack(id){
+  const t=curTracks.find(x=>x.id===id);if(!t)return;
+  openModal('编辑歌曲 · 上传','<div class="frow"><label>封面</label><div class="avrow"><img id="pvCover" src="'+location.origin+'/music/api/cover/'+id+'" onerror="this.style.visibility=\'hidden\'"><button type="button" onclick="document.getElementById(\'fiCover\').click()">更换封面</button></div><input type="file" id="fiCover" accept="image/*" class="hidden" onchange="pickImg(this,\'cover\')"><div class="hint">点击更换，支持 jpg/png/webp，≤3MB</div></div><div class="frow"><label>歌曲名称</label><input id="fTitle" value="'+esc(t.title)+'"></div><div class="frow"><label>作者/歌手</label><input id="fArtist" value="'+esc(t.artist)+'"></div>',
+    {type:'track',id:id,fields:{cover:null},onSave:saveTrack});
+}
+async function editCol(id){
+  const t=curCols.find(x=>x.id===id);if(!t)return;
+  openModal('编辑歌曲 · 采集','<div class="frow"><label>封面</label><div class="avrow"><img id="pvCover" src="'+location.origin+'/music/api/cover/'+id+'" onerror="this.style.visibility=\'hidden\'"><button type="button" onclick="document.getElementById(\'fiCover\').click()">更换封面</button></div><input type="file" id="fiCover" accept="image/*" class="hidden" onchange="pickImg(this,\'cover\')"><div class="hint">点击更换，支持 jpg/png/webp，≤3MB</div></div><div class="frow"><label>歌曲名称</label><input id="fTitle" value="'+esc(t.title)+'"></div><div class="frow"><label>作者/歌手</label><input id="fArtist" value="'+esc(t.artist)+'"></div>',
+    {type:'collected',id:id,fields:{cover:null},onSave:saveTrack});
+}
+async function saveTrack(){
+  const fd={};
+  const nm=document.getElementById('fTitle').value.trim();
+  const ar=document.getElementById('fArtist').value.trim();
+  fd.title=nm;fd.artist=ar;
+  if(mState.fields.cover)fd.cover=mState.fields.cover;
+  await api('/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:mState.type,id:mState.id,fields:fd})});
+  closeModal();
+  if(mState.type==='track')loadTracks(curPage.tracks);else loadCollected(curPage.collected);
+}
+async function banUser(id){const r=prompt('请输入封禁原因：');if(r===null)return;await api('/ban',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,reason:r,action:'ban'})});loadUsers();}
+async function unbanUser(id){await api('/ban',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:'unban'})});loadUsers();}
+async function delComment(id){if(!confirm('确认删除这条评论？'))return;await api('/del/comment/'+id,{method:'POST'});loadComments();}
+async function offlineTrack(id){const r=prompt('请输入下架原因：');if(r===null)return;await api('/offline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'track',id:id,reason:r,action:'off'})});loadTracks();}
+async function onlineTrack(id){await api('/offline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'track',id:id,action:'on'})});loadTracks();}
+async function offlineCol(id){const r=prompt('请输入下架原因：');if(r===null)return;await api('/offline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'collected',id:id,reason:r,action:'off'})});loadCollected();}
+async function onlineCol(id){await api('/offline',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'collected',id:id,action:'on'})});loadCollected();}
+async function delUser(id){if(!confirm('确认删除该用户？'))return;await api('/del/user/'+id,{method:'POST'});loadUsers();}
+async function delTrack(id){const r=prompt('请输入删除原因：');if(r===null)return;if(!confirm('确认删除？原因：'+r))return;await api('/del/track/'+id,{method:'POST'});loadTracks();}
+async function delCol(id){const r=prompt('请输入删除原因：');if(r===null)return;if(!confirm('确认删除？原因：'+r))return;await api('/del/collected/'+id,{method:'POST'});loadCollected();}
+async function changePwd(){
+  openModal('修改管理密码','<div class="frow"><label>当前密码</label><input id="pOld" type="password"></div><div class="frow"><label>新密码</label><input id="pNew" type="password" placeholder="6-64 位"></div><div class="frow"><label>确认新密码</label><input id="pNew2" type="password"></div>',{onSave:savePwd});
+}
+async function savePwd(){
+  const o=document.getElementById('pOld').value.trim();
+  const n=document.getElementById('pNew').value.trim();
+  const n2=document.getElementById('pNew2').value.trim();
+  if(!o||!n){alert('请填写完整');return}
+  if(n!==n2){alert('两次新密码不一致');return}
+  const r=await api('/change_pwd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:o,pwd:n})});
+  if(r&&r.ok){closeModal();alert('密码已修改，请用新密码重新登录');logout();}
+  else{alert((r&&r.err)||'修改失败');}
+}
+if(token){document.getElementById('loginBox').classList.add('hidden');document.getElementById('appBox').classList.remove('hidden');loadDash();}
+
+async function loadNotify(){
+  const d=await api('/official-messages?admin=1');
+  let h='<div class="topbar"><h1>官方通知管理</h1><button onclick="showNotifyModal()">+ 发布新通知</button></div>';
+  h+='<div class="tablewrap"><table><tr><th>内容</th><th>范围</th><th>发送时间</th><th>操作</th></tr>';
+  if(!d.list||!d.list.length)h+='<tr><td colspan="4" class="empty">暂无官方通知</td></tr>';
+  if(d.list)d.list.forEach(m=>{
+    const t=new Date(m.created*1000);
+    const ts=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0')+' '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
+    h+='<tr><td style="max-width:400px;white-space:normal">'+esc(m.content)+'</td><td style="font-size:12px;color:#888">'+(m.receiverUserId?('定向用户 '+esc(m.receiverUserName||m.receiverUserId)):'全体用户')+'</td><td style="font-size:12px;color:#888">'+ts+'</td><td class="act"><button onclick="delNotify(\''+m.id+'\')">删除</button></td></tr>';
+  });
+  h+='</table></div>';
+  h+='<div class="modal hidden" id="notifyModal"><div class="modal-box" style="max-width:500px;width:100%"><h3 style="margin-bottom:16px">发布官方通知</h3><textarea id="notifyContent" placeholder="输入通知内容..." style="width:100%;height:120px;padding:12px;border-radius:10px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box;resize:vertical"></textarea><div style="margin-top:12px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">发送范围（留空=全广播给所有用户；填用户ID=仅发送给该用户）</label><input id="notifyReceiver" placeholder="用户ID（留空为全广播）" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div><div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end"><button onclick="hideNotifyModal()" style="padding:9px 18px;border:0;border-radius:8px;background:#2a2a2e;color:#aaa;cursor:pointer">取消</button><button onclick="publishNotify()" style="padding:9px 18px;border:0;border-radius:8px;background:#2a6df4;color:#fff;cursor:pointer">发布</button></div></div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+function showNotifyModal(){document.getElementById('notifyModal').classList.remove('hidden')}
+function hideNotifyModal(){document.getElementById('notifyModal').classList.add('hidden')}
+async function publishNotify(){
+  const content=document.getElementById('notifyContent').value.trim();
+  if(!content){alert('请输入通知内容');return}
+  const receiver=(document.getElementById('notifyReceiver').value||'').trim();
+  const r=await api('/official-message',{method:'POST',body:JSON.stringify({content:content,receiverUserId:receiver})});
+  if(r.ok){hideNotifyModal();loadNotify();}else{alert(r.err||'发布失败')}
+}
+async function delNotify(id){
+  if(!confirm('确定删除这条通知？'))return;
+  const r=await api('/official-message/'+id,{method:'DELETE'});
+  if(r.ok)loadNotify();else alert(r.err||'删除失败')
+}
+
+
+// ---- 会员管理（开通/延期 VIP、SVIP；会员开通后自动发官方定向通知） ----
+async function loadMembers(){
+  const d=await api('/users');
+  let h='<div class="topbar"><h1>会员管理</h1></div>';
+  h+='<p style="font-size:12px;color:#888;margin-bottom:12px">搜索后为指定用户开通/延期 VIP（绿色）或 SVIP（金色）。SVIP 覆盖 VIP（只显示 SVIP 图标、按 SVIP 校验特权）。</p>';
+  h+='<div style="margin-bottom:14px;display:flex;gap:8px"><input id="memberQ" placeholder="搜索昵称 / 账号 / 用户ID" style="flex:1;min-width:0;background:#111;border:1px solid #2a2a2e;border-radius:8px;color:#eee;font-size:13px;padding:8px 12px;outline:none" oninput="filterMembers()"><button onclick="filterMembers()" style="padding:8px 14px;border:0;border-radius:8px;background:#2a6df4;color:#fff;cursor:pointer">搜索</button></div>';
+  h+='<div class="tablewrap"><table><tr><th>用户</th><th>当前会员</th><th>到期时间</th><th>操作</th></tr><tbody id="memberRows">';
+  (d.list||[]).forEach(u=>{
+    const memBadge=u.member==='svip'?'<span style="background:linear-gradient(135deg,#8a6d1f,#d4af37);color:#fff;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:700">SVIP</span>'
+      :u.member==='vip'?'<span style="background:linear-gradient(135deg,#1f6a4a,#2ecc8f);color:#fff;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:700">VIP</span>'
+      :'<span style="color:#666;font-size:12px">未开通</span>';
+    const exp=(u.svipExpire||0)>(u.memberExpire||0)?u.svipExpire:u.memberExpire;
+    const expTxt=exp>0?new Date(exp*1000).toLocaleString():'-';
+    h+='<tr data-k="'+esc((u.name||'')+' '+(u.account||'')+' '+(u.id||'').toLowerCase())+'"><td><div style="color:#fff">'+esc(u.name||'')+'</div><div style="font-size:11px;color:#888">'+esc(u.account||'')+' · '+esc(u.id||'')+'</div></td>'
+      +'<td>'+memBadge+'</td><td style="font-size:12px;color:#aaa">'+expTxt+'</td>'
+      +'<td class="act"><button onclick="openMember(\''+u.id+'\',\''+esc(u.name||'')+'\')">开通/延期</button></td></tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div class="modal hidden" id="memberModal"><div class="modal-box" style="max-width:480px;width:100%"><h3 style="margin-bottom:16px">会员开通 / 延期</h3><div id="memberModalUser" style="font-size:13px;color:#888;margin-bottom:12px"></div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:12px"><button id="mpVip" onclick="pickPlan(\'vip\')" style="flex:1;padding:10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#2ecc8f;font-weight:700;cursor:pointer">VIP（绿）</button>'
+    +'<button id="mpSvip" onclick="pickPlan(\'svip\')" style="flex:1;padding:10px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#d4af37;font-weight:700;cursor:pointer">SVIP（金）</button></div>'
+    +'<label style="display:block;font-size:13px;color:#888;margin-bottom:6px">开通天数（在剩余时长上叠加）</label>'
+    +'<input id="memberDays" type="number" value="30" min="1" max="3650" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box">'
+    +'<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end"><button onclick="hideMember()" style="padding:9px 18px;border:0;border-radius:8px;background:#2a2a2e;color:#aaa;cursor:pointer">取消</button>'
+    +'<button onclick="saveMember()" style="padding:9px 18px;border:0;border-radius:8px;background:#4CD9A5;color:#111;font-weight:700;cursor:pointer">确认开通</button></div></div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+function filterMembers(){
+  const q=(document.getElementById('memberQ').value||'').toLowerCase().trim();
+  document.querySelectorAll('#memberRows tr').forEach(tr=>{tr.style.display=(!q||(tr.dataset.k||'').includes(q))?'':'none'});
+}
+let _memUser=null,_memPlan='vip';
+function openMember(uid,name){_memUser=uid;document.getElementById('memberModalUser').textContent='用户：'+name+'（'+uid+'）';pickPlan('vip');document.getElementById('memberModal').classList.remove('hidden')}
+function hideMember(){document.getElementById('memberModal').classList.add('hidden')}
+function pickPlan(p){
+  _memPlan=p;
+  const v=document.getElementById('mpVip'),s=document.getElementById('mpSvip');
+  v.style.borderColor=(p==='vip'?'#2ecc8f':'#2a2a2e');v.style.background=(p==='vip'?'#12271d':'#111');
+  s.style.borderColor=(p==='svip'?'#d4af37':'#2a2a2e');s.style.background=(p==='svip'?'#2a2410':'#111');
+}
+async function saveMember(){
+  if(!_memUser)return;
+  const days=parseInt(document.getElementById('memberDays').value)||30;
+  const r=await api('/member',{method:'POST',body:JSON.stringify({userId:_memUser,plan:_memPlan,days:days})});
+  if(r.ok){hideMember();loadMembers();}else alert(r.err||'开通失败');
+}
+
+// ---- 认证管理（类别两级 + 申请审核；审核通过后自动蓝 V + 官方通知） ----
+async function loadVerify(){
+  const [cats,apps]=await Promise.all([api('/verify-categories'),api('/verify-applications?status=pending')]);
+  let h='<div class="topbar"><h1>认证管理</h1></div>';
+  // 认证类别管理
+  h+='<div style="background:#1a1a1c;padding:20px;border-radius:12px;margin-bottom:16px"><h3 style="margin-bottom:6px;font-size:16px">认证类别</h3>'
+    +'<p style="font-size:12px;color:#888;margin-bottom:12px">两级分类：第一级（个人/企业/组织）+ 第二级（如 歌手/工作室/品牌）。前端申请认证时按此选择。</p>';
+  h+='<div id="vcatList" style="margin-bottom:10px">';
+  (cats.list||[]).forEach(c=>{h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #222"><span style="font-size:13px;color:#fff">'+esc(c.level1)+'</span><span style="font-size:12px;color:#888">› '+esc(c.level2||'不限')+'</span><span style="flex:1"></span><button onclick="delVcat(\''+c.id+'\')" style="font-size:12px;color:#ff6b6b;background:none;border:0;cursor:pointer">删除</button></div>'});
+  h+='</div>';
+  h+='<div style="display:flex;gap:8px"><input id="vcatL1" placeholder="第一级（如 个人/企业/组织）" style="flex:1;min-width:0;background:#111;border:1px solid #2a2a2e;border-radius:8px;color:#eee;font-size:13px;padding:8px 10px;outline:none">'
+    +'<input id="vcatL2" placeholder="第二级（如 歌手/工作室，可空）" style="flex:1;min-width:0;background:#111;border:1px solid #2a2a2e;border-radius:8px;color:#eee;font-size:13px;padding:8px 10px;outline:none">'
+    +'<button onclick="addVcat()" style="padding:8px 14px;border:0;border-radius:8px;background:#2a6df4;color:#fff;cursor:pointer">添加</button></div></div>';
+  // 申请列表 + 状态筛选
+  h+='<div style="display:flex;gap:8px;margin-bottom:12px">'
+    +'<button onclick="loadVerifyBy(\'pending\')" style="padding:6px 14px;border:1px solid #2a2a2e;border-radius:8px;background:#111;color:#ffcc4d;cursor:pointer;font-size:13px">待审核</button>'
+    +'<button onclick="loadVerifyBy(\'approved\')" style="padding:6px 14px;border:1px solid #2a2a2e;border-radius:8px;background:#111;color:#2ecc8f;cursor:pointer;font-size:13px">已通过</button>'
+    +'<button onclick="loadVerifyBy(\'rejected\')" style="padding:6px 14px;border:1px solid #2a2a2e;border-radius:8px;background:#111;color:#ff6b6b;cursor:pointer;font-size:13px">已拒绝</button></div>';
+  h+='<div class="tablewrap"><table><tr><th>申请用户</th><th>类别</th><th>认证标签</th><th>申请理由</th><th>审核意见</th><th>时间</th><th>操作</th></tr><tbody id="vappRows">';
+  (apps.list||[]).forEach(a=>{
+    h+='<tr><td><div style="color:#fff">'+esc(a.userName||'')+'</div><div style="font-size:11px;color:#888">'+esc(a.account||'')+' · '+esc(a.userId||'')+'</div></td>'
+      +'<td style="font-size:13px">'+esc(a.level1||'')+(a.level2?' › '+esc(a.level2):'')+'</td>'
+      +'<td style="font-size:13px;color:#aaa">'+esc(a.label||'-')+'</td>'
+      +'<td style="max-width:220px;white-space:normal;font-size:13px;color:#ccc">'+esc(a.reason||'')+'</td>'
+      +'<td style="max-width:180px;white-space:normal;font-size:12px;color:'+(a.reviewNote?'#ffcc4d':'#555')+'">'+esc(a.reviewNote||'-')+'</td>'
+      +'<td style="font-size:12px;color:#888">'+new Date((a.created||0)*1000).toLocaleString()+'</td>'
+      +'<td class="act"><button onclick="reviewApp(\''+a.id+'\',\'approve\')" style="color:#2ecc8f">通过</button> <button onclick="reviewApp(\''+a.id+'\',\'reject\')" style="color:#ff6b6b">拒绝</button></td></tr>';
+  });
+  if(!(apps.list||[]).length)h+='<tr><td colspan="7" class="empty">暂无申请</td></tr>';
+  h+='</tbody></table></div>';
+  document.getElementById('content').innerHTML=h;
+}
+async function loadVerifyBy(status){await loadVerify();}
+async function addVcat(){
+  const level1=(document.getElementById('vcatL1').value||'').trim(),level2=(document.getElementById('vcatL2').value||'').trim();
+  if(!level1){alert('请填写第一级类别');return}
+  const r=await api('/verify-category',{method:'POST',body:JSON.stringify({level1:level1,level2:level2})});
+  if(r.ok){loadVerify();}else alert(r.err||'添加失败');
+}
+async function delVcat(id){
+  if(!confirm('删除该认证类别？'))return;
+  const r=await api('/verify-category/delete',{method:'POST',body:JSON.stringify({id:id})});
+  if(r.ok){loadVerify();}else alert(r.err||'删除失败');
+}
+async function reviewApp(id,action){
+  let note='';
+  if(action==='reject'){
+    note=(prompt('请输入拒绝原因（必填，将通知申请用户）：')||'').trim();
+    if(!note){alert('拒绝时必须填写原因');return}
+  }else{
+    note=(prompt('审核意见（选填，将随通过通知发送；留空则只发恭喜文案）：')||'').trim();
+  }
+  const r=await api('/verify-application',{method:'POST',body:JSON.stringify({id:id,action:action,note:note})});
+  if(r.ok){loadVerify();}else alert(r.err||'操作失败');
+}
+
+
+// ---- 推荐设置（后台动态调整推荐算法参数，recommend.py 5s 缓存生效） ----
+async function loadRecCfg(){
+  const d=await api('/recommend-config');
+  const defs=d.defaults||{},saved=d.saved||{};
+  const num=(id,label,key,step,min,max,unit)=>(
+    '<div style="margin-bottom:14px"><label style="display:block;font-size:13px;color:#888;margin-bottom:6px">'+label+'（默认 '+defs[key]+unit+'）</label>'+
+    '<input id="'+id+'" type="number" step="'+step+'" min="'+min+'" max="'+max+'" value="'+esc(saved[key]||defs[key])+'" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #2a2a2e;background:#111;color:#fff;font-size:14px;box-sizing:border-box"></div>');
+  let h='<div style="max-width:780px">';
+  h+='<div style="background:#1a1a1c;padding:24px;border-radius:12px;margin-bottom:16px">'+
+     '<h3 style="margin-bottom:6px;font-size:16px">推荐算法参数</h3>'+
+     '<p style="font-size:12px;color:#888;margin-bottom:18px">修改后约 5 秒内生效（无需重启）。权重越大该路占比越高；探索池越大候选越多但计算变重。留空/清空该字段恢复默认值。</p>';
+  h+='<div style="background:#111;border-radius:10px;padding:16px;margin-bottom:16px"><h4 style="margin-bottom:12px;font-size:14px">各路召回权重</h4>';
+  h+=num('recWBehavior','行为匹配权重（近期爱听）','rec_w_behavior','0.1',0,50,'');
+  h+=num('recWGenre','风格吻合权重','rec_w_genre','0.1',0,50,'');
+  h+=num('recWArtist','常听歌手权重','rec_w_artist','0.1',0,50,'');
+  h+=num('recWScene','应景场景权重','rec_w_scene','0.1',0,50,'');
+  h+=num('recWHot','热度权重','rec_w_hot','0.1',0,50,'');
+  h+=num('recWFresh','新歌权重','rec_w_fresh','0.1',0,50,'');
+  h+=num('recWExplore','探索权重（换口味）','rec_w_explore','0.1',0,50,'');
+  h+='</div>';
+  h+='<div style="background:#111;border-radius:10px;padding:16px;margin-bottom:16px"><h4 style="margin-bottom:12px;font-size:14px">算法细节</h4>';
+  h+=num('recExplorePool','探索池大小','rec_explore_pool','20',20,2000,'');
+  h+=num('recSceneBoost','场景加权倍数（应景歌/近期爱听前移强度）','rec_scene_boost','0.1',0,5,'');
+  h+=num('recNoise','随机扰动（越大结果越不同）','rec_noise','0.1',0,10,'');
+  h+=num('recMaxArtist','单歌手上限（同一歌手最多出现）','rec_max_per_artist','1',1,10,'首');
+  h+='</div>';
+  h+='<button class="mbtn m-save" style="width:100%;padding:12px;border:0;border-radius:10px;background:#2a6df4;color:#fff;font-size:15px;cursor:pointer" onclick="saveRecCfg()">保存推荐参数</button>';
+  h+='<span id="recTip" style="margin-left:10px;font-size:12px;color:#888"></span></div></div>';
+  document.getElementById('content').innerHTML=h;
+}
+async function saveRecCfg(){
+  const keys={recWBehavior:'rec_w_behavior',recWGenre:'rec_w_genre',recWArtist:'rec_w_artist',recWScene:'rec_w_scene',
+    recWHot:'rec_w_hot',recWFresh:'rec_w_fresh',recWExplore:'rec_w_explore',recExplorePool:'rec_explore_pool',
+    recSceneBoost:'rec_scene_boost',recNoise:'rec_noise',recMaxArtist:'rec_max_per_artist'};
+  const body={};
+  for(const id in keys){
+    const v=document.getElementById(id).value;
+    if(v==='')continue;  // 空=恢复默认
+    const n=parseFloat(v);
+    if(!isNaN(n)&&n>=0)body[keys[id]]=n;
+  }
+  await api('/recommend-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const tip=document.getElementById('recTip');
+  tip.textContent='已保存 ✓（约 5 秒生效）';tip.style.color='#4CD9A5';
+  setTimeout(()=>{tip.textContent=''},3000);
+}
+</script></body></html>

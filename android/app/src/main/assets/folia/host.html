@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Folia Host</title>
+<style>html,body{background:#000;width:100%;height:100%;margin:0;padding:0;overflow:hidden}#root{width:100%;height:100%}</style>
+  <script>
+  /* Folia iOS 性能优化：升级旧 localStorage tuning 到新性能默认值
+   * （旧版默认 renderQuality:full / textureResolution:1.5 / postProcessTextureCompression:false
+   *   会覆盖新默认值，导致优化不生效；此处仅升级性能关键项，保留用户其它自定义） */
+  (function () {
+    try {
+      var KEYS = { lumiere_tuning: { renderQuality: 'balanced' }, sonnet_tuning: { textureResolution: 1 }, tempera_tuning: { textureResolution: 1, postProcessTextureCompression: true } };
+      for (var k in KEYS) {
+        var raw = localStorage.getItem(k);
+        if (!raw) continue;
+        var v;
+        try { v = JSON.parse(raw); } catch (e) { continue; }
+        if (!v || typeof v !== 'object') continue;
+        var kv = KEYS[k], changed = false;
+        for (var p in kv) {
+          if (v[p] !== kv[p]) { v[p] = kv[p]; changed = true; }
+        }
+        if (changed) localStorage.setItem(k, JSON.stringify(v));
+      }
+      // 帧率：若用户曾显式选择 off（不限制，120Hz 满载导致卡顿），升级为默认 60
+      var fr = localStorage.getItem('visualizer_frame_rate');
+      if (fr === 'off') localStorage.setItem('visualizer_frame_rate', '60');
+    } catch (e) {}
+  })();
+  </script>
+  <script type="module" crossorigin src="./assets/host-BdjlrWaj.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-hePW80VL.js">
+  <link rel="modulepreload" crossorigin href="./assets/lucide-icons-By-j2yFU.js">
+  <link rel="modulepreload" crossorigin href="./assets/motionSignals-wdaiezDb.js">
+  <link rel="modulepreload" crossorigin href="./assets/preload-helper-uBIymjUX.js">
+  <link rel="modulepreload" crossorigin href="./assets/colorMix-CnH_WQSI.js">
+  <link rel="modulepreload" crossorigin href="./assets/fontStacks-BnJBkWk9.js">
+  <link rel="modulepreload" crossorigin href="./assets/stageLayers-DX2vT_86.js">
+  <link rel="modulepreload" crossorigin href="./assets/visualizerSeedHash-SHIIzsbn.js">
+  <link rel="modulepreload" crossorigin href="./assets/graphemeTiming-BhIjEJVM.js">
+  <link rel="modulepreload" crossorigin href="./assets/layout-DTcA5SQ7.js">
+  <link rel="modulepreload" crossorigin href="./assets/rich-inline-QYxYVrJ1.js">
+  <link rel="modulepreload" crossorigin href="./assets/alternateText-BieoZVFZ.js">
+  <link rel="modulepreload" crossorigin href="./assets/subtitleTrackStyle-B8nybXX5.js">
+  <link rel="stylesheet" crossorigin href="./assets/stageLayers-QTgsb78Q.css">
+  <link rel="stylesheet" crossorigin href="./assets/host-B_JA6rlK.css">
+  <link rel="stylesheet" href="./assets/tailwind-utilities.css">
+  <script defer src="./folia-patch.js"></script>
+</head>
+<body>
+<div id="root"></div>
+</body>
+</html>

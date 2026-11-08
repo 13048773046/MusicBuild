@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121214">
+<title>流萤音乐</title>
+__META_OG__
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--accent:#4CD9A5;--accent-dark:#2fb487}
+html,body{background:#121214;color:#f5f5f7;font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif}
+body{min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-left)) calc(48px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-right));
+background:radial-gradient(120% 90% at 50% -10%,#1C3A30 0%,#121214 55%)}
+/* ---------- 顶部 APP 卡片 ---------- */
+.appcard{display:flex;align-items:center;gap:12px;max-width:520px;margin:0 auto 22px;
+padding:12px 14px;border-radius:16px;background:rgba(255,255,255,.06);
+border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.appico{width:46px;height:46px;border-radius:12px;flex:0 0 auto;
+background:#0b0f0d;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.35);overflow:hidden}
+.appico img{width:100%;height:100%;object-fit:cover;display:block}
+.appmeta{flex:1;min-width:0}
+.appname{font-size:16px;font-weight:700;letter-spacing:.2px}
+.appsub{font-size:12px;color:#9a9aa2;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appbtn{flex:0 0 auto;padding:9px 16px;border:none;border-radius:20px;cursor:pointer;
+background:var(--accent);color:#0b0f0d;font-size:13px;font-weight:700;
+box-shadow:0 3px 10px rgba(76,217,165,.3);transition:transform .12s,opacity .12s}
+.appbtn:active{transform:scale(.95);opacity:.85}
+/* ---------- 封面/歌曲信息：与 APP 卡片同宽对齐（去卡片包裹） ---------- */
+.cover{width:100%;max-width:520px;aspect-ratio:1/1;border-radius:18px;margin:0 auto;overflow:hidden;
+background:#17171a;box-shadow:0 10px 30px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.06)}
+.cover img{width:100%;height:100%;object-fit:cover;display:block}
+.title{margin:20px auto 0;max-width:520px;font-size:21px;font-weight:700;text-align:left;width:100%;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artist{margin:7px auto 0;max-width:520px;font-size:14px;color:#8e8e93;text-align:left;width:100%;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ---------- 歌词两行 ---------- */
+.lyric2{margin:20px auto 0;max-width:520px;text-align:left;min-height:44px;width:100%;
+display:flex;flex-direction:column;gap:4px;justify-content:center}
+.l2{font-size:14px;color:#6e6e73;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .25s}
+.l2.on{color:var(--accent);font-weight:600}
+/* ---------- 播放条：拖动条 + 右侧播放按钮（与封面同宽对齐） ---------- */
+.player{margin:20px auto 0;max-width:520px;width:100%;display:flex;align-items:center;gap:10px}
+.time{font-size:12px;color:#6e6e73;font-variant-numeric:tabular-nums;min-width:38px}
+.time.r{text-align:right}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;
+background:linear-gradient(to right,var(--accent) var(--p,0%),#2c2c2e var(--p,0%));outline:none;touch-action:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+background:var(--accent);border:2px solid #0b0f0d}
+.playbtn{flex:0 0 auto;width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;
+background:var(--accent);display:flex;align-items:center;justify-content:center;
+box-shadow:0 8px 22px rgba(76,217,165,.35);transition:transform .12s,opacity .12s}
+.playbtn:active{transform:scale(.94);opacity:.85}
+.playbtn svg{width:22px;height:22px;fill:#0b0f0d;display:block}
+.err{display:none;margin-top:12px;font-size:13px;color:#ff453a;text-align:center}
+</style>
+</head>
+<body>
+<div class="appcard">
+  <div class="appico"><img src="data:image/png;base64,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" alt="流萤音乐"></div>
+  <div class="appmeta">
+    <div class="appname">流萤音乐</div>
+    <div class="appsub">完整曲库 · 无损试听 · 逐字歌词</div>
+  </div>
+  <button class="appbtn" id="appbtn">去 APP 里面听</button>
+</div>
+
+<div class="cover"><img id="cov" alt=""></div>
+<div class="title" id="ttl"></div>
+<div class="artist" id="art"></div>
+<div class="lyric2" id="lyric2">
+  <div class="l2 on" id="l2a">加载歌词中…</div>
+  <div class="l2" id="l2b"></div>
+</div>
+<div class="player">
+    <span class="time" id="cur">0:00</span>
+    <input type="range" id="seek" min="0" max="1000" value="0">
+    <span class="time r" id="dur">-:--</span>
+    <button class="playbtn" id="pb" aria-label="播放">
+      <svg id="pico" viewBox="0 0 24 24"><polygon points="7,4 20,12 7,20"/></svg>
+    </button>
+  </div>
+  <div class="err" id="err"></div>
+
+
+<script>
+(function(){
+  var TRACK_ID = __TID__;
+  var COVER = __COVER__;
+  // API 基址与 share token 由后端渲染时注入（兼容 /api/share/{token} 与短链 /s/{code} 两种入口）
+  var SHARE_TOKEN = __SHARE_TOKEN__;
+  var api = __API_BASE__;
+  function resParam(){ return '?share=' + encodeURIComponent(SHARE_TOKEN); }
+  var ttl = document.getElementById('ttl'), art = document.getElementById('art');
+  var cov = document.getElementById('cov'), pb = document.getElementById('pb');
+  var pico = document.getElementById('pico'), seek = document.getElementById('seek');
+  var curEl = document.getElementById('cur'), durEl = document.getElementById('dur');
+  var errEl = document.getElementById('err'), appbtn = document.getElementById('appbtn');
+  var l2a = document.getElementById('l2a'), l2b = document.getElementById('l2b');
+  var audio = new Audio(), playing = false, loaded = false;
+  var LINES = [], curLine = -1, hasLrc = false;
+
+  ttl.textContent = __TITLE__;
+  art.textContent = __AUTHOR__;
+  if (COVER) { cov.src = api + '/cover/' + TRACK_ID; }
+  else { cov.remove(); }
+
+  /* ---------- 去 APP 里面听：深链打开 App 并定位该歌曲 ---------- */
+  appbtn.addEventListener('click', function(){
+    var href = 'liuyingmusic://track/' + encodeURIComponent(TRACK_ID);
+    var opened = false;
+    // 2.2s 内若 App 成功接管（页面隐藏/卸载）则不提示；否则跳转官网下载引导。
+    // App 冷启动较慢时 Safari 页面会先被 App 遮挡触发 hidden，故窗口给足。
+    var t = setTimeout(function(){
+      if (!opened) {
+        // 未安装 / 未打开：直接引导到官网下载页
+        location.href = 'https://www.dbmt999.asia/';
+      }
+    }, 2200);
+    function mark(){ opened = true; clearTimeout(t); }
+    window.addEventListener('pagehide', mark);
+    document.addEventListener('visibilitychange', function(){ if (document.hidden) mark(); });
+    // iOS Safari：iframe 加载 custom scheme 无效（只在顶层导航时处理），
+    // 必须用 location.href 顶层跳转才能真正唤起已注册协议的 App。
+    // 已注册 scheme（1.1.20+）→ 直接切换到 App，无系统弹窗；
+    // 未注册（旧版）→ Safari 弹「网址无效」，随后走页面可见性检测提示更新。
+    var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isIOS) {
+      location.href = href;
+    } else {
+      location.href = href;
+      try {
+        var f2 = document.createElement('iframe');
+        f2.style.display = 'none';
+        f2.src = href;
+        document.body.appendChild(f2);
+        setTimeout(function(){ f2.remove(); }, 600);
+      } catch (e) {}
+    }
+  });
+
+  /* ---------- 歌词解析：KRC 逐字 / 纯 LRC 整行 ---------- */
+  function parseLrc(lrc){
+    var lines = [];
+    (lrc || '').split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean).forEach(function(part){
+      var mT = /^\[(\d{1,2}):(\d{2}(?:\.\d{1,3})?)(?:,\d+)?\]/.exec(part);
+      var t0 = mT ? (+mT[1]*60000 + parseFloat(mT[2])*1000) : (lines.length ? lines[lines.length-1].t1 : 0);
+      var ws = [], re = /<(\d+),(\d+)>([^<]*)/g, m;
+      while ((m = re.exec(part))) { var c = (m[3] || '').trim(); if (c) ws.push({t0:+m[1], t1:+m[1]+ +m[2], c:c}); }
+      if (ws.length) { lines.push({t0:t0, w:ws}); return; }
+      var body = mT ? part.slice(mT[0].length) : part;
+      var c = body.replace(/\[(?:ti|ar|al|by|offset|length|re|ve|au|co|op|sp|cn|ot|ta|ka|kw|ms):[^\]]*\]/gi, '').trim();
+      if (c) lines.push({t0:t0, w:[{t0:t0, t1:t0+30000, c:c}]});
+    });
+    lines.forEach(function(l, i){
+      var nt = (lines[i+1] ? lines[i+1].t0 : (l.t0 || 0) + 30000);
+      if (!l.t1) l.t1 = nt;
+      if (l.w.length === 1 && l.w[0].t1 - l.w[0].t0 > 4000) l.w[0].t1 = nt;
+    });
+    return lines;
+  }
+  function lineText(i){
+    if (i == null || i < 0 || i >= LINES.length) return '';
+    var s = '';
+    LINES[i].w.forEach(function(w){ s += w.c; });
+    return s;
+  }
+
+  function loadLyric(){
+    fetch(api + '/lyric/' + TRACK_ID + resParam(), {cache:'no-store'})
+      .then(function(r){ if (!r.ok) throw new Error('bad'); return r.text(); })
+      .then(function(txt){
+        var ls = parseLrc(txt);
+        if (!ls.length) { l2a.textContent = '暂无歌词'; l2b.textContent = ''; return; }
+        hasLrc = true; LINES = ls;
+        l2a.textContent = lineText(0);
+        l2b.textContent = lineText(1);
+        paintLyric(0);
+      })
+      .catch(function(){ l2a.textContent = '暂无歌词'; l2b.textContent = ''; });
+  }
+  loadLyric();
+
+  /* ---------- 播放器 ---------- */
+  function fmt(s){ s = Math.max(0, Math.floor(s || 0)); var m = Math.floor(s/60); var ss = s%60;
+    return m + ':' + (ss < 10 ? '0' : '') + ss; }
+  function setIcon(play){ pico.innerHTML = play
+    ? '<polygon points="7,4 20,12 7,20"/>'
+    : '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+    pb.setAttribute('aria-label', play ? '播放' : '暂停'); }
+  function showErr(m){ errEl.textContent = m; errEl.style.display = 'block'; }
+  function hideErr(){ errEl.style.display = 'none'; }
+  function paint(){ var d = audio.duration || 0; var c = audio.currentTime || 0;
+    var p = d > 0 ? (c/d*1000) : 0; seek.value = p;
+    seek.style.setProperty('--p', (d > 0 ? c/d*100 : 0) + '%');
+    curEl.textContent = fmt(c); durEl.textContent = d > 0 ? fmt(d) : '-:--';
+    paintLyric(c); }
+
+  /* ---------- 歌词两行滚动：当前行 + 下一行 ---------- */
+  var lastLine = -1;
+  function paintLyric(pos){
+    if (!hasLrc) return;
+    // 注意：pos 来自 audio.currentTime（秒），歌词时间戳是毫秒，须统一换算
+    var ms = pos * 1000;
+    var i = 0;
+    if (ms > 0) { for (var k = 0; k < LINES.length; k++) {
+      if (ms >= LINES[k].t0 && (k === LINES.length-1 || ms < LINES[k+1].t0)) { i = k; break; } } }
+    if (i !== lastLine) {
+      lastLine = i;
+      l2a.textContent = lineText(i);
+      l2b.textContent = lineText(i + 1);
+    }
+  }
+
+  function loadStream(){
+    return fetch(api + '/stream-url/' + TRACK_ID + resParam())
+      .then(function(r){ if(!r.ok){ throw new Error('bad'); } return r.json(); })
+      .then(function(j){ audio.src = api + '/stream/' + TRACK_ID + '?exp=' + j.exp + '&sig=' + j.sig; loaded = true; })
+      .catch(function(){ showErr('加载失败，请稍后重试'); throw new Error('load'); });
+  }
+
+  pb.addEventListener('click', function(){
+    if (playing) { audio.pause(); setIcon(true); playing = false; return; }
+    hideErr();
+    var start = loaded ? Promise.resolve() : loadStream();
+    start.then(function(){ return audio.play(); })
+      .then(function(){ playing = true; setIcon(false); })
+      .catch(function(e){ if (e && e.message !== 'load') { showErr('无法播放，请检查网络后重试'); setIcon(true); playing = false; } });
+  });
+
+  audio.addEventListener('timeupdate', paint);
+  audio.addEventListener('durationchange', paint);
+  audio.addEventListener('loadedmetadata', paint);
+  audio.addEventListener('ended', function(){ setIcon(true); playing = false; paint(); });
+  audio.addEventListener('error', function(){ setIcon(true); playing = false; showErr('播放出错，请重试'); });
+
+  var dragging = false;
+  seek.addEventListener('input', function(){
+    dragging = true;
+    var d = audio.duration || 0;
+    var p = Number(seek.value);
+    seek.style.setProperty('--p', (d > 0 ? p/10 : 0) + '%');
+    curEl.textContent = d > 0 ? fmt(p/1000*d) : fmt(0);
+  });
+  seek.addEventListener('change', function(){
+    var d = audio.duration || 0;
+    if (d > 0) { audio.currentTime = Number(seek.value)/1000*d; }
+    dragging = false; paint();
+  });
+  audio.addEventListener('play', function(){ playing = true; setIcon(false); });
+  audio.addEventListener('pause', function(){ if (dragging) return; playing = false; setIcon(true); });
+})();
+</script>
+</body>
+</html>

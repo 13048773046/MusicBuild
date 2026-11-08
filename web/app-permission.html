@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>应用权限清单 - 流萤音乐</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+            line-height: 1.8;
+            padding: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 8px;
+            padding-top: 20px;
+        }
+        .update-date {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 32px;
+        }
+        h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            margin-top: 28px;
+            margin-bottom: 12px;
+        }
+        p {
+            font-size: 15px;
+            color: #ccc;
+            margin-bottom: 12px;
+        }
+        ul {
+            padding-left: 24px;
+            margin-bottom: 12px;
+        }
+        li {
+            font-size: 15px;
+            color: #ccc;
+            margin-bottom: 6px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 10px 12px;
+            text-align: left;
+            vertical-align: top;
+            color: #ccc;
+        }
+        th {
+            background: #1e1e1e;
+            color: #fff;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .back {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            font-size: 14px;
+            color: #3D7BFF;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>流萤音乐应用权限清单</h1>
+    <p class="update-date">更新日期：2026年10月22日</p>
+
+    <p>为向您提供音乐播放、社交互动、消息推送等服务，本应用（含 iOS 与 Android 版本）会在您使用相应功能时申请下列系统权限。我们遵循"最小必要"原则，仅在功能需要时申请权限，您可以随时在系统设置中开启或关闭各项权限。</p>
+
+    <h2>一、权限明细</h2>
+
+    <table>
+        <tr>
+            <th style="width:120px">权限</th>
+            <th style="width:220px">对应系统权限标识</th>
+            <th>用途与说明</th>
+        </tr>
+        <tr>
+            <td>网络</td>
+            <td>Android：INTERNET / ACCESS_NETWORK_STATE<br>iOS：蜂窝数据 / Wi-Fi</td>
+            <td>访问网络，实现在线播放、搜索、加载封面与歌词、上传内容等核心功能。拒绝后将无法使用本应用。</td>
+        </tr>
+        <tr>
+            <td>通知</td>
+            <td>Android：POST_NOTIFICATIONS<br>iOS：通知（远程推送）</td>
+            <td>接收互动通知（点赞、评论、关注、粉丝）与官方通知提醒、后台播放媒体控制。可在系统设置中关闭，关闭后不影响播放功能。</td>
+        </tr>
+        <tr>
+            <td>定位</td>
+            <td>Android：ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION<br>iOS：使用期间定位（NSLocationWhenInUseUsageDescription）</td>
+            <td>仅在您使用"天气 × 时段"场景推荐时获取当前位置，用于提供应景的推荐内容。仅在使用期间获取，可随时关闭；关闭后该功能显示"仅时段"兜底，不影响其他服务。</td>
+        </tr>
+        <tr>
+            <td>相册</td>
+            <td>Android：系统相册选择器<br>iOS：系统照片选择器</td>
+            <td>在您主动上传头像、个人主页背景图、评论配图时读取所选图片。仅在您主动选择时访问，不会自动读取相册内容。</td>
+        </tr>
+        <tr>
+            <td>相机</td>
+            <td>Android：CAMERA（拍摄头像时）<br>iOS：未申请</td>
+            <td>Android 端在您主动选择"拍摄头像"时调用相机；iOS 端不申请相机权限。仅在您主动拍摄时使用。</td>
+        </tr>
+        <tr>
+            <td>后台播放</td>
+            <td>Android：FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK / WAKE_LOCK / MODIFY_AUDIO_SETTINGS<br>iOS：后台音频模式（UIBackgroundModes）</td>
+            <td>锁屏或切至后台时继续播放音乐、保持音频焦点与系统媒体控制。系统自动使用，无需授权。</td>
+        </tr>
+    </table>
+
+    <h2>二、其他说明</h2>
+    <ul>
+        <li><b>本地存储</b>：本应用<b>不申请</b>本地存储（读写外部存储）权限。歌曲缓存、下载内容与个人数据均保存在应用私有目录（系统自动管理，卸载即清除）；选择相册图片时使用系统提供的安全相册选择器，仅返回您选中的图片，不读取整个存储空间。</li>
+        <li>本应用遵循"最小必要"原则：未申请麦克风、通讯录、短信、日历等与音乐服务无关的权限。</li>
+        <li>Android 版另有部分系统自动管理的声明权限（如 VIBRATE、SYSTEM_ALERT_WINDOW、WRITE_SETTINGS、RECEIVE_USER_PRESENT），其中悬浮窗等权限已声明但当前版本未实际使用。</li>
+        <li>您在系统设置中关闭某项权限后，仅影响对应功能（如关闭定位则天气场景推荐不可用），其余功能不受影响；重新开启即可恢复。</li>
+        <li>我们不会在您不知情的情况下申请或使用权限，也不会将权限用于清单之外的目的。</li>
+    </ul>
+
+    <h2>三、权限管理方式</h2>
+    <ul>
+        <li><b>Android</b>：系统设置 → 应用管理 → 流萤音乐 → 权限，可逐项开启或关闭。</li>
+        <li><b>iOS</b>：系统设置 → 流萤音乐 → 权限，可逐项开启或关闭。</li>
+    </ul>
+
+    <p>如您对本清单有任何疑问，请通过应用内"我的 - 设置 - 关于 APP"中的联系方式与我们联系。</p>
+
+    <a class="back" href="javascript:history.back()">← 返回</a>
+</body>
+</html>

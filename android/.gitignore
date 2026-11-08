@@ -1,0 +1,9 @@
+
+# Kotlin daemon errors
+.kotlin/
+
+# CMake 构建缓存
+.cxx/
+.gradle_cache/
+build_all.log
+build_island.log

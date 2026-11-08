@@ -1,0 +1,1127 @@
+import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
+
+/// 分页加载状态容器：管理某个列表的「已加载项 + 当前页 + 总数 + 是否还有更多」
+struct MinePager<T: Equatable> {
+    var items: [T] = []
+    var page: Int = 1
+    var total: Int = 0
+    var hasMore: Bool = false
+    var isLoading: Bool = false
+    var loadedOnce: Bool = false
+    var failed: Bool = false
+
+    var isEmpty: Bool { loadedOnce && items.isEmpty }
+}
+
+struct MineView: View {
+    @EnvironmentObject private var player: PlayerManager
+    @EnvironmentObject private var auth: AuthManager
+    @EnvironmentObject private var router: AppRouter
+
+    // 听歌时长（秒）
+    @State private var listenSeconds: Int = 0
+    // 社交数据
+    @State private var followerCount: Int = 0
+    @State private var followingCount: Int = 0
+    @State private var mutualCount: Int = 0
+    @State private var likeCount: Int = 0
+    // 历史和歌单总数
+    @State private var historyTotal: Int = 0
+    @State private var playlistTotal: Int = 0
+    // 历史和歌单数据
+    @State private var historyItems: [HistoryTrack] = []
+    @State private var playlistItems: [Playlist] = []
+
+    // 三个分页列表：我的作品 / 我的喜欢 / 我的评论
+    @State private var works = MinePager<Track>()
+    @State private var likes = MinePager<Track>()
+    @State private var comments = MinePager<API.MyComment>()
+
+    /// 滑动窗体当前页：0=作品 1=点赞 2=评论
+    @State private var selectedTab = 0
+    /// 上一次所在页：用于左右切换时的过渡动画方向
+    @State private var lastTab = 0
+    @Namespace private var sliderNS
+
+    @State private var showImporter = false
+    @State private var pickedFileURL: URL?
+    @State private var showUploadSheet = false
+    @State private var showSettings = false
+    @State private var showNotifications = false
+    @State private var unreadNotifCount: Int = 0
+
+    private static let pageSize = 20
+
+    /// 状态栏高度：背景图延伸到状态栏后面需要用它铺满顶部
+    private static var statusBarHeight: CGFloat {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let ws = scene as? UIWindowScene,
+                  let window = ws.keyWindow else { continue }
+            let top = window.safeAreaInsets.top
+            if top > 0 { return top }
+        }
+        return 44
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Theme.background.ignoresSafeArea()
+
+                // 整页滚动（与首页一致沉浸式）：头部/指示器/列表全部在同一个 ScrollView 里，
+                // 上下滑动时整个页面（背景图、用户信息、指示器）一起滚动，而不是只有列表滚。
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        userHeader(topInset: Self.statusBarHeight)
+                        
+                        // 快捷入口：播放历史 / 我的歌单
+                        HStack(spacing: 12) {
+                            NavigationLink {
+                                HistoryView()
+                            } label: {
+                                quickCardLabel(
+                                    icon: "clock.arrow.circlepath",
+                                    title: "播放历史",
+                                    subtitle: "最近听过的歌",
+                                    color: Theme.accent
+                                )
+                            }
+                            .buttonStyle(PressableButtonStyle())
+
+                            NavigationLink {
+                                PlaylistsView()
+                            } label: {
+                                quickCardLabel(
+                                    icon: "music.note.list",
+                                    title: "我的歌单",
+                                    subtitle: "收藏喜欢的歌曲",
+                                    color: .purple
+                                )
+                            }
+                            .buttonStyle(PressableButtonStyle())
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        
+                        contentTabs
+                        currentPage
+                    }
+                }
+                .ignoresSafeArea(edges: .top)
+                .appBottomTabSpacing()
+                .refreshable { await refreshAll() }
+                .simultaneousGesture(horizontalSwipe)
+            }
+            // 设置页（独立页面，非弹窗）——navigationDestination 必须在 NavigationStack 内部
+            .navigationDestination(isPresented: $showSettings) {
+                SettingsView()
+                    .environmentObject(auth)
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationsView()
+                    .environmentObject(player)
+                    .environmentObject(auth)
+                    .environmentObject(router)
+            }
+            .navigationBarHidden(true)
+            .task { await initialLoad() }
+            // 每次进入我的页刷新会员/认证/头衔（老会话或后台开通后立即显示徽章）
+            .task { await auth.refreshMemberStatus() }
+            // 切换账号后：按新账号重新加载我的数据（作品/点赞/评论/听歌时长/未读数）
+            .onChange(of: auth.currentUser?.id) { _ in
+                Task { await refreshAll() }
+            }
+            // WebSocket 实时推送驱动铃铛红点
+            .onReceive(NotificationBus.shared.$unreadCount) { n in
+                unreadNotifCount = n
+            }
+            // 实时数据事件：听歌时长统计 / 我的作品列表变化
+            .onReceive(NotificationBus.shared.$lastDataEvent) { ev in
+                guard let ev else { return }
+                switch ev.event {
+                case "stats":
+                    if let t = ev.totalSeconds {
+                        listenSeconds = t
+                    }
+                    Task { await loadStats() }
+                case "my_tracks":
+                    Task { await refreshWorks() }
+                default:
+                    break
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [.audio, .mp3, .wav, .mpeg4Audio],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    pickedFileURL = url
+                    showUploadSheet = true
+                }
+            case .failure:
+                break
+            }
+        }
+        .sheet(isPresented: $showUploadSheet) {
+            if let url = pickedFileURL {
+                UploadSheet(fileURL: url) {
+                    // 刷新「我的作品」列表 + 强制刷新全局曲库：
+                    // 否则首页竖滑/发现页看不到新上传的歌（只有重启 App 才会出现）
+                    async let w: Void = loadWorks(reset: true)
+                    async let lib: Void = Library.shared.load(force: true)
+                    _ = await (w, lib)
+                }
+                .environmentObject(auth)
+            }
+        }
+        .tint(Theme.accent)
+    }
+
+    // MARK: - 用户信息区（全新设计）
+
+    private func userHeader(topInset: CGFloat) -> some View {
+        let u = auth.currentUser
+        return ZStack(alignment: .bottom) {
+            // 背景图区域
+            ZStack(alignment: .top) {
+                // 用户背景图（有图用图，无图用渐变）
+                // 2026-10-19 溢出修复（根因）：背景图此前只 .frame(height:)，scaledToFill
+                // 按原始宽高比放大到 260pt 高，宽度远超屏宽（16:9 图≈462pt）→ 头部 ZStack
+                // 被背景图撑宽 → LazyVStack 居中 → 头像（左）与设置按钮（右）对称推出屏幕。
+                // 修复：背景图强制拉伸到容器宽并裁剪，任何内容都不再把头部撑宽。
+                Group {
+                    if let bgURL = u?.backgroundURL {
+                        CachedCoverImage(url: bgURL, title: u?.name ?? "",
+                                         placeholder: Rectangle().fill(Theme.card))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 260 + topInset)
+                            .clipped()
+                    } else {
+                        // 无背景图：深绿渐变
+                        LinearGradient(
+                            colors: [Theme.accent.opacity(0.2), Theme.accent.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 260 + topInset)
+                    }
+                }
+
+                // 底部渐变遮罩：让背景图和下面的内容自然融合
+                LinearGradient(
+                    colors: [Color.clear, Theme.background],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: 120)
+                .offset(y: 140 + topInset)
+
+                // 顶部按钮行（上传/消息/设置）
+                HStack(spacing: 12) {
+                    Spacer()
+                    Button { showImporter = true } label: {
+                        Circle()
+                            .fill(.white.opacity(0.12))
+                            .frame(width: 38, height: 38)
+                            .overlay(Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+
+                    Button { showNotifications = true } label: {
+                        Circle()
+                            .fill(.white.opacity(0.12))
+                            .frame(width: 38, height: 38)
+                            .overlay(
+                                ZStack {
+                                    Image(systemName: "bell.fill")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    if unreadNotifCount > 0 {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 16, height: 16)
+                                            .overlay(
+                                                Text("\(unreadNotifCount > 99 ? "99+" : "\(unreadNotifCount)")")
+                                                    .font(.system(size: 9, weight: .bold))
+                                                    .foregroundColor(.white)
+                                            )
+                                            .offset(x: 10, y: -10)
+                                    }
+                                }
+                            )
+                    }
+                    .buttonStyle(PressableButtonStyle())
+
+                    Button { showSettings = true } label: {
+                        Circle()
+                            .fill(.white.opacity(0.12))
+                            .frame(width: 38, height: 38)
+                            .overlay(Image(systemName: "gearshape")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white))
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+                .frame(maxWidth: .infinity) // 按钮行锁定容器宽：三键永远贴右，不被背景撑跑
+                .padding(.top, topInset + 8)
+                .padding(.horizontal, 20)
+            }
+            .frame(maxWidth: .infinity) // 背景区域锁定容器宽
+
+            // 底部内容：头像 + 基本信息 + 统计数据（都在背景区域底部）
+            VStack(spacing: 16) {
+                // 头像 + 基本信息
+                // 2026-10-19 溢出修复：信息列 VStack 必须占满剩余宽度（maxWidth:.infinity），
+                // 否则任一行内容（昵称/头衔/签名/城市）固有宽度一长，就会把整个 HStack 撑宽，
+                // 头像与信息被推出屏幕左缘（实测截图头像左半在屏外）。
+                HStack(spacing: 16) {
+                    CachedCoverImage(
+                        url: u?.avatarURL ?? URL(string: "about:blank")!,
+                        title: u?.name ?? "",
+                        placeholder: Circle().fill(Theme.accentSoft)
+                            .overlay(Image(systemName: "person.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(Theme.accent))
+                    )
+                    .frame(width: 72, height: 72)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
+                    // 认证标：有认证时显示圆形蓝色认证标（替代在线绿点，右下角）；
+                    // 未认证不显示
+                    .overlay { if u != nil, !(u?.verified ?? "").isEmpty { CertBadge(avatarSize: 72) } }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        // 名字 + 会员图标（VIP绿/SVIP金胶囊）
+                        // （认证由头像右下角圆形蓝标表达，不再在名字旁放方块蓝V）
+                        HStack(spacing: 6) {
+                            Text(u?.name ?? "未登录")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7) // 超长昵称先缩字，徽章不被挤出
+                                .layoutPriority(1)      // 昵称优先占位，徽章可被压缩
+                            if let u { MemberBadge(member: u.member) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(spacing: 6) {
+                            if let acc = u?.account, !acc.isEmpty {
+                                Text("ID \(acc)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Capsule().fill(.white.opacity(0.15)))
+                            }
+                            // 头衔胶囊（后台设置，与 ID 同行展示）
+                            if let u { TitleCapsule(title: u.title) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // 性别 · 年龄 · 城市（大致地址，有值才显示）＋ 累计听歌时长（小时为单位）同行：
+                        // 性别/年龄/城市在左，听歌时长胶囊在右（时长胶囊与 ID 徽标同款样式）
+                        HStack(spacing: 8) {
+                            if let u, !((u.gender ?? "").isEmpty && (u.age ?? 0) <= 0 && (u.city ?? "").isEmpty) {
+                                let meta = [u.gender?.isEmpty ?? true ? nil : u.gender,
+                                            (u.age ?? 0) > 0 ? "\(u.age ?? 0) 岁" : nil,
+                                            u.city?.isEmpty ?? true ? nil : u.city]
+                                    .compactMap { $0 }
+                                if !meta.isEmpty {
+                                    Text(meta.joined(separator: " · "))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.white.opacity(0.7))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+                            }
+                            if !listenHoursText.isEmpty {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "clock.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(.white.opacity(0.85))
+                                    Text(listenHoursText)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.9))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(.white.opacity(0.15)))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if let sig = u?.signature, !sig.isEmpty {
+                            Text(sig)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.6))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // 统计数据（直接放在背景区域里，不用卡片）
+                HStack(spacing: 0) {
+                    statInline(value: "\(works.total)", label: "作品")
+                    Divider().frame(height: 20)
+                    statInline(value: "\(followerCount)", label: "粉丝")
+                    Divider().frame(height: 20)
+                    statInline(value: "\(followingCount)", label: "关注")
+                    Divider().frame(height: 20)
+                    statInline(value: "\(mutualCount)", label: "互关")
+                    Divider().frame(height: 20)
+                    statInline(value: "\(likeCount)", label: "获赞")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .frame(maxWidth: .infinity) // 底部内容锁定容器宽：头像行恒贴左，不被背景撑跑
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+        }
+        .frame(maxWidth: .infinity) // 最外层锁定容器宽
+        .frame(height: 260 + topInset)
+        .clipped() // 终极兜底：任何漏网超宽内容只裁不撑，绝不把头部推出屏幕
+    }
+
+    private func statInline(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(.white)
+                // 窄屏/长数字防挤压：单行显示，必要时等比缩小（不换行不出界）
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.5))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func quickCardLabel(icon: String, title: String, subtitle: String, color: Color) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(color.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(color)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    // MARK: - 内容 Tab 切换（作品 | 点赞 | 评论）
+
+    private var contentTabs: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                contentTabItem(title: "作品", count: works.total, index: 0)
+                contentTabItem(title: "点赞", count: likes.total, index: 1)
+                contentTabItem(title: "评论", count: comments.total, index: 2)
+            }
+            
+            // 滑块：单独一层，根据 selectedTab 移动
+            GeometryReader { geo in
+                Capsule()
+                    .fill(Theme.accent)
+                    .frame(width: 24, height: 3)
+                    .offset(x: geo.size.width / 3 * CGFloat(selectedTab) + geo.size.width / 6 - 12)
+                    .animation(.easeInOut(duration: 0.25), value: selectedTab)
+            }
+            .frame(height: 3)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    private func contentTabItem(title: String, count: Int, index: Int) -> some View {
+        let selected = selectedTab == index
+        return Button {
+            switchTab(index)
+        } label: {
+            VStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 14, weight: selected ? .bold : .medium))
+                        .foregroundColor(selected ? .white : .white.opacity(0.5))
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(selected ? Theme.accent : .white.opacity(0.3))
+                }
+                // 占位，高度和滑块一致
+                Color.clear.frame(height: 3)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - 当前页内容（整页滚动：只渲染选中页，左右滑动切换带过渡动画）
+
+    /// 切换页：记录上一页用于过渡方向，并带动画切换（指示器滑块同步平滑移动）
+    private func switchTab(_ new: Int) {
+        guard new >= 0, new <= 4, new != selectedTab else { return }
+        lastTab = selectedTab
+        withAnimation(.easeInOut(duration: 0.28)) { selectedTab = new }
+    }
+
+    /// 左右滑动手势：横向主导时切换上一页/下一页（纵向仍交给整页滚动）
+    private var horizontalSwipe: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > abs(dy), abs(dx) > 50 else { return }
+                let newTab = dx < 0 ? min(selectedTab + 1, 2) : max(selectedTab - 1, 0)
+                switchTab(newTab)
+            }
+    }
+
+    @ViewBuilder
+    private var currentPage: some View {
+        // 过渡方向：向右切（新页从右滑入、旧页向左滑出）；向左切反之
+        let dir: Edge = selectedTab > lastTab ? .trailing : .leading
+        let rev: Edge = dir == .trailing ? .leading : .trailing
+        ZStack {
+            if selectedTab == 0 {
+                worksList
+                    .transition(.asymmetric(insertion: .move(edge: dir),
+                                            removal: .move(edge: rev)))
+            } else if selectedTab == 1 {
+                likesList
+                    .transition(.asymmetric(insertion: .move(edge: dir),
+                                            removal: .move(edge: rev)))
+            } else {
+                commentsList
+                    .transition(.asymmetric(insertion: .move(edge: dir),
+                                            removal: .move(edge: rev)))
+            }
+        }
+    }
+
+    // MARK: - 作品页（分页加载，直接在外层整页 ScrollView 中惰性渲染）
+
+    private var worksList: some View {
+        LazyVStack(spacing: 10) {
+            if works.failed {
+                loadFailedHint
+            } else if works.isEmpty {
+                emptyHint("还没有上传歌曲")
+            } else {
+                ForEach(works.items, id: \.id) { t in
+                    trackRow(t, queue: works.items, kind: .works)
+                }
+                loadMoreFooter(pager: works) { await loadWorks(reset: false) }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: - 点赞页（分页加载）
+
+    private var likesList: some View {
+        LazyVStack(spacing: 10) {
+            if likes.failed {
+                loadFailedHint
+            } else if likes.isEmpty {
+                emptyHint("还没有点赞过歌曲")
+            } else {
+                ForEach(likes.items, id: \.id) { t in
+                    trackRow(t, queue: likes.items, kind: .liked)
+                }
+                loadMoreFooter(pager: likes) { await loadLikes(reset: false) }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: - 评论页（分页加载）
+
+    private var commentsList: some View {
+        LazyVStack(spacing: 10) {
+            if comments.failed {
+                loadFailedHint
+            } else if comments.isEmpty {
+                emptyHint("还没有发表过评论")
+            } else {
+                ForEach(comments.items, id: \.id) { c in
+                    commentRow(c)
+                }
+                loadMoreFooter(pager: comments) { await loadComments(reset: false) }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: - 播放历史页
+
+    private var historyList: some View {
+        LazyVStack(spacing: 10) {
+            if historyItems.isEmpty {
+                emptyHint("还没有播放记录")
+            } else {
+                ForEach(historyItems) { h in
+                    historyRow(h)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+        .task { await loadHistory() }
+    }
+
+    private func historyRow(_ h: HistoryTrack) -> some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Theme.accentSoft)
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(Theme.accent)
+                )
+            VStack(alignment: .leading, spacing: 4) {
+                Text(h.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(h.artist)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text(timeAgo(h.created))
+                .font(.system(size: 11))
+                .foregroundColor(Theme.textTertiary)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func timeAgo(_ ts: Double) -> String {
+        let interval = Date().timeIntervalSince1970 - ts
+        if interval < 3600 {
+            return "\(Int(interval / 60))分钟前"
+        } else if interval < 86400 {
+            return "\(Int(interval / 3600))小时前"
+        } else {
+            return "\(Int(interval / 86400))天前"
+        }
+    }
+
+    // MARK: - 我的歌单页
+
+    private var playlistsList: some View {
+        LazyVStack(spacing: 12) {
+            if playlistItems.isEmpty {
+                emptyHint("还没有创建歌单")
+            } else {
+                ForEach(playlistItems) { pl in
+                    NavigationLink {
+                        PlaylistDetailView(playlist: pl)
+                            .environmentObject(player)
+                            .environmentObject(auth)
+                    } label: {
+                        playlistRow(pl)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 16)
+        .task { await loadPlaylists() }
+    }
+
+    // MARK: - 功能入口卡片（播放历史 / 我的歌单）
+
+    private func socialStatItem(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(Theme.textPrimary)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(Theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func playlistRow(_ pl: Playlist) -> some View {
+        HStack(spacing: 12) {
+            // 歌单封面
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Theme.accentSoft)
+                .frame(width: 52, height: 52)
+                .overlay(
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 20))
+                        .foregroundColor(Theme.accent)
+                )
+            VStack(alignment: .leading, spacing: 4) {
+                Text(pl.name)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(Theme.textPrimary)
+                    .lineLimit(1)
+                Text("\(pl.trackCount) 首歌曲")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.textSecondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13))
+                .foregroundColor(Theme.textTertiary)
+        }
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - 列表行（作品 / 点赞共用）
+
+    /// 列表行点击来源：作品 / 喜欢（决定点击后进入哪个听歌模式）
+    private enum MineRowKind { case works, liked }
+
+    private func trackRow(_ t: Track, queue: [Track], kind: MineRowKind) -> MineTrackRow {
+        MineTrackRow(track: t,
+                     isCurrent: player.current?.id == t.id,
+                     isPlaying: player.isPlaying) {
+            switch kind {
+            case .works:
+                // 点击我的作品：播放页切换「我的作品」模式，作品列表循环（到最后一个回第一个），从该歌开始
+                player.playWorksTrack(t, known: queue)
+            case .liked:
+                // 点击我的喜欢：播放页切换「我的喜欢」模式，点赞列表循环，从该歌开始
+                player.playLikedTrack(t, known: queue)
+            }
+        }
+    }
+
+    private func commentRow(_ c: API.MyComment) -> some View {
+        Button {
+            playComment(c)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Theme.lilac)
+                    Text(c.title ?? "未知歌曲")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                        .lineLimit(1)
+                    Spacer()
+                    if let created = c.created, created > 0 {
+                        Text(Self.dateString(created))
+                            .font(.system(size: 11))
+                            .foregroundColor(Theme.textTertiary)
+                    }
+                }
+                Text("「\(c.content)」")
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.textSecondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .softCard(radius: 14)
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+
+    // MARK: - 通用小组件
+
+    private func tag(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(.white.opacity(0.9))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1)
+            )
+    }
+
+    private func emptyHint(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundColor(Theme.textTertiary)
+            .padding(.vertical, 48)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var loadFailedHint: some View {
+        Text("加载失败，下拉刷新重试")
+            .font(.system(size: 13))
+            .foregroundColor(Theme.textTertiary)
+            .padding(.vertical, 48)
+            .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// 底部加载更多指示：滚动到列表末尾时自动加载下一页
+    @ViewBuilder
+    private func loadMoreFooter<T: Equatable>(pager: MinePager<T>,
+                                              load: @escaping () async -> Void) -> some View {
+        if pager.hasMore {
+            ProgressView()
+                .tint(Theme.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .onAppear { Task { await load() } }
+        }
+    }
+
+    /// 日期格式化：DateFormatter 创建开销大，列表多行复用同一实例。
+    /// 仅在主线程（视图渲染上下文）使用。
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static func dateString(_ ts: Double) -> String {
+        guard ts > 0 else { return "--" }
+        return dateFormatter.string(from: Date(timeIntervalSince1970: ts))
+    }
+
+    /// 听歌时长格式化：不足 1 小时显示分钟，否则显示小时
+    private var listenText: String {
+        guard listenSeconds > 0 else { return "0 分钟" }
+        let hours = Double(listenSeconds) / 3600.0
+        if hours < 1 {
+            return "\(Int(listenSeconds / 60)) 分钟"
+        }
+        return String(format: "%.1f 小时", hours)
+    }
+
+    /// 累计听歌时长（小时为单位，千分位）：<1 小时保留 1 位小数（0.5 小时），≥1 取整
+    private var listenHoursText: String {
+        guard listenSeconds > 0 else { return "" }
+        let hours = Double(listenSeconds) / 3600.0
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .decimal
+        fmt.maximumFractionDigits = hours < 1 ? 1 : 0
+        guard let n = fmt.string(from: NSNumber(value: hours)) else {
+            return String(format: "%.1f 小时", hours)
+        }
+        return "\(n) 小时"
+    }
+
+    // MARK: - 数据加载（分页）
+
+    @MainActor
+    private func initialLoad() async {
+        // 启动页已预加载我的页数据：直接采用，不再重复请求（秒开）
+        if AppPreloader.shared.mineLoaded {
+            adoptPreload()
+            return
+        }
+        // 预加载未完成/失败（如启动时未登录）：自行加载兜底
+        let need = !works.loadedOnce || !likes.loadedOnce || !comments.loadedOnce
+        if need { await refreshAll() }
+    }
+
+    /// 采用启动页预加载的数据初始化三个列表与听歌时长（第一页，后续滚动续拉）
+    @MainActor
+    private func adoptPreload() {
+        let pre = AppPreloader.shared
+        listenSeconds = pre.mineStatsSeconds
+
+        func pager<T: Equatable>(items: [T], total: Int) -> MinePager<T> {
+            var p = MinePager<T>()
+            p.items = items
+            p.total = total
+            p.page = 2
+            p.hasMore = total > items.count
+            p.loadedOnce = true
+            p.isLoading = false
+            p.failed = false
+            return p
+        }
+        works = pager(items: pre.works, total: pre.worksTotal)
+        likes = pager(items: pre.likes, total: pre.likesTotal)
+        comments = pager(items: pre.comments, total: pre.commentsTotal)
+    }
+
+    @MainActor
+    private func refreshAll() async {
+        async let s: Void = loadStats()
+        async let w: Void = loadWorks(reset: true)
+        async let l: Void = loadLikes(reset: true)
+        async let c: Void = loadComments(reset: true)
+        async let n: Void = loadUnreadCount()
+        _ = await (s, w, l, c, n)
+    }
+
+    /// 加载未读通知数（铃铛红点）
+    @MainActor
+    private func loadUnreadCount() async {
+        guard auth.currentUser != nil else {
+            unreadNotifCount = 0
+            NotificationBus.shared.setUnread(0)
+            return
+        }
+        if let r = try? await API.notifications() {
+            var total = r.unread
+            if let om = try? await API.officialMessages() { total += om.unreadCount }
+            unreadNotifCount = total
+            NotificationBus.shared.setUnread(total)
+        }
+    }
+
+    @MainActor
+    private func refreshWorks() async {
+        async let s: Void = loadStats()
+        async let w: Void = loadWorks(reset: true)
+        _ = await (s, w)
+    }
+
+    @MainActor
+    private func refreshLikes() async {
+        async let s: Void = loadStats()
+        async let l: Void = loadLikes(reset: true)
+        _ = await (s, l)
+    }
+
+    @MainActor
+    private func refreshComments() async {
+        async let s: Void = loadStats()
+        async let c: Void = loadComments(reset: true)
+        _ = await (s, c)
+    }
+
+    @MainActor
+    private func loadStats() async {
+        if let seconds = try? await API.myStats() {
+            listenSeconds = seconds
+        }
+        // 加载社交数据
+        if let uid = auth.currentUser?.id {
+            if let p = try? await API.fetchUserProfile(uid) {
+                followerCount = p.followerCount
+                followingCount = p.followingCount
+                mutualCount = p.mutualCount
+                likeCount = p.likeCount
+            }
+        }
+    }
+
+    @MainActor
+    private func loadHistory() async {
+        do {
+            let list = try await API.fetchHistory(page: 1, pageSize: 50)
+            historyItems = list
+            historyTotal = list.count
+        } catch {}
+    }
+
+    @MainActor
+    private func loadPlaylists() async {
+        do {
+            let list = try await API.fetchPlaylists()
+            playlistItems = list
+            playlistTotal = list.count
+        } catch {}
+    }
+
+    @MainActor
+    private func loadWorks(reset: Bool) async {
+        await loadPage($works, reset: reset) { page, size in
+            try await API.myTracks(page: page, pageSize: size)
+        }
+        // 同步「我的作品」总数到预加载器：侧滑栏据此显示/隐藏「我的作品」模式按钮（上传/删除后实时更新）
+        AppPreloader.shared.worksTotal = works.total
+    }
+
+    @MainActor
+    private func loadLikes(reset: Bool) async {
+        await loadPage($likes, reset: reset) { page, size in
+            try await API.myLikes(page: page, pageSize: size)
+        }
+    }
+
+    @MainActor
+    private func loadComments(reset: Bool) async {
+        await loadPage($comments, reset: reset) { page, size in
+            try await API.myComments(page: page, pageSize: size)
+        }
+    }
+
+    /// 通用分页加载：reset=true 回到第一页并替换数据；否则追加下一页。
+    /// - 加载期间防重入；
+    /// - 请求成功后才替换/清空列表；
+    /// - 请求失败或被系统打断（如重复下拉刷新取消上一次任务）时**回滚旧数据**，
+    ///   只有完全没有任何数据时才展示"加载失败"，避免刷新时列表闪空/误报失败。
+    @MainActor
+    private func loadPage<T: Equatable>(_ pager: Binding<MinePager<T>>, reset: Bool,
+                                        fetch: (Int, Int) async throws -> API.PageResult<T>) async {
+        guard !pager.wrappedValue.isLoading else { return }
+        // 记录旧快照：失败时回滚
+        let old = pager.wrappedValue
+        if reset {
+            pager.wrappedValue = MinePager()
+        }
+        var p = pager.wrappedValue
+        p.isLoading = true
+        p.failed = false
+        pager.wrappedValue = p
+        do {
+            let r = try await fetch(p.page, Self.pageSize)
+            var np = pager.wrappedValue
+            np.items = reset ? r.list : np.items + r.list
+            np.total = r.total
+            np.hasMore = r.hasMore
+            np.page = p.page + 1
+            np.loadedOnce = true
+            np.isLoading = false
+            np.failed = false
+            pager.wrappedValue = np
+        } catch {
+            // 有旧数据：回滚（列表保持不变，不打断浏览、不误报失败）
+            if !old.items.isEmpty {
+                var np = old
+                np.isLoading = false
+                np.failed = false
+                pager.wrappedValue = np
+            } else {
+                // 无旧数据（首次加载失败）：展示失败提示
+                var np = pager.wrappedValue
+                np.isLoading = false
+                np.loadedOnce = true
+                np.failed = np.items.isEmpty
+                pager.wrappedValue = np
+            }
+        }
+    }
+
+    // MARK: - 评论点击播放（构建最小 Track，cover 置 "1" 复用封面路由）
+
+    private func playComment(_ c: API.MyComment) {
+        let track = Track(id: c.trackId, title: c.title ?? "未知歌曲",
+                          artist: c.artist, album: nil, cover: "1", size: nil,
+                          dur: nil, durText: nil, created: c.created,
+                          playCount: nil, likeCount: nil, shareCount: nil,
+                          commentCount: nil, userId: nil, userName: nil,
+                          hasLyric: nil, isLiked: nil, reason: nil)
+        // 我的评论单曲播放 = 普通流：听歌模式归「默认模式」（侧滑栏选中态一致）
+        player.playInNormalMode(track, in: [track])
+    }
+}
+
+/// 只圆底部两角的形状：用户背景图与下方信息区衔接处的圆角
+struct BottomRoundedShape: Shape {
+    var radius: CGFloat = 24
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.height / 2)
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+                       control: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        p.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r),
+                       control: CGPoint(x: rect.minX, y: rect.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+// MARK: - 我的页列表行（作品 / 点赞共用）
+
+/// P0-1：独立行视图，不订阅 PlayerManager（iOS 16 ObservableObject 对象级依赖，
+/// 0.25s 高频进度刷新会连带重算所有读了 player 的行）——由 MineView 传入静态 isCurrent/isPlaying。
+private struct MineTrackRow: View, Equatable {
+    let track: Track
+    let isCurrent: Bool
+    let isPlaying: Bool
+    let onTap: () -> Void
+
+    static func == (l: Self, r: Self) -> Bool {
+        l.track.id == r.track.id && l.isCurrent == r.isCurrent && l.isPlaying == r.isPlaying
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                AlbumArt(size: 44, title: track.title, coverURL: track.coverURL, radius: 9)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(track.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text(track.displayAuthor)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if isCurrent {
+                    if isPlaying {
+                        EqualizerBars(color: Theme.accent)
+                    } else {
+                        Image(systemName: "pause.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Theme.accent)
+                    }
+                }
+                if let dur = track.durText, !dur.isEmpty {
+                    Text(dur)
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.textTertiary)
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .softCard(radius: 14)
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+}

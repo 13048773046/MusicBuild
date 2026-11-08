@@ -1,0 +1,51 @@
+name: MusicApp
+options:
+  bundleIdPrefix: com.SFn27a
+  xcodeVersion: "15.0"
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  Kingfisher:
+    url: https://github.com/onevcat/Kingfisher
+    from: 8.0.0
+targets:
+  MusicApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+      # folia 网页包以 folder reference 引入：整体作为蓝色文件夹复制到 bundle，
+      # 保留 folia/ 子目录结构（否则 XcodeGen 会把 1900+ 个 JS 文件扁平化散落到 app 根）
+      - path: Resources/folia
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: Kingfisher
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.star2936.guava3291
+        PRODUCT_NAME: MusicApp
+        DEVELOPMENT_TEAM: XMFUKNL53Y
+        CODE_SIGN_STYLE: Manual
+        MARKETING_VERSION: 1.1.44
+        CURRENT_PROJECT_VERSION: 44
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          # 工业级 Release 加固：全模块优化 + 符号剥离 + 死代码裁剪 + 剥离调试符号
+          SWIFT_COMPILATION_MODE: wholemodule
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          GCC_OPTIMIZATION_LEVEL: s
+          STRIP_INSTALLED_PRODUCT: YES
+          STRIP_STYLE: all
+          COPY_PHASE_STRIP: YES
+          DEAD_CODE_STRIPPING: YES
+          # dSYM：崩溃符号化必需（线上 signal 崩溃栈只有 "MusicApp + 偏移"，
+          # 1.1.20→1.1.40 的 Folia 崩溃因此无法定位到函数）。二进制仍按 STRIP_* 剥离符号。
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          DEBUG_INFORMATION_FORMAT: dwarf
