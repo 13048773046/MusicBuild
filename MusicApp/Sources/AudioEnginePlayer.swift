@@ -96,9 +96,8 @@ final class AudioEnginePlayer {
     private let srcHigh = AVAudioMixerNode()
     /// 3D 环境混合器：内置距离衰减 + 环境混响，隐式听者。
     /// 硬约束：仅对「mono 连接格式」的输入做空间化，因此三条声源链全程以 mono 接入。
+    /// 环境节点直接连 mainMixer，用自身 outputVolume 作为全景链总开关（与旧链互斥）。
     private let environmentNode = AVAudioEnvironmentNode()
-    /// 环境链总输出桥：用 outputVolume 统一开关全景链（与旧链互斥）
-    private let envMix = AVAudioMixerNode()
 
     // MARK: - 多轨分离音轨节点（服务端 Demucs 2 轨：人声 + 伴奏）
     /// 人声 / 伴奏独立播放节点，用统一 hostTime 做 sample-accurate 同步
@@ -279,7 +278,8 @@ final class AudioEnginePlayer {
         srcLow.outputVolume = 0
         srcMid.outputVolume = 0
         srcHigh.outputVolume = 0
-        envMix.outputVolume = 0
+        // 全景链总输出默认关断（环境节点直接连 mainMixer）
+        environmentNode.outputVolume = 0
         // 多轨点声源默认关断
         srcVocals.outputVolume = 0
         srcAccL.outputVolume = 0
@@ -307,7 +307,6 @@ final class AudioEnginePlayer {
         engine.attach(srcMid)
         engine.attach(srcHigh)
         engine.attach(environmentNode)
-        engine.attach(envMix)
         // 多轨节点
         engine.attach(playerVocals)
         engine.attach(playerAcc)
@@ -318,14 +317,15 @@ final class AudioEnginePlayer {
         let output = engine.outputNode
         let rawFormat = output.inputFormat(forBus: 0)
         let outHwFormat = output.outputFormat(forBus: 0)
+        // 最终汇聚点：用引擎内置 mainMixerNode（系统自动连接 output），
+        // 不再让多条链路直接连 outputNode——避免与隐式 mainMixer 图冲突。
+        let mainMixer = engine.mainMixerNode
         LogReporter.shared.log(level: "info", tag: "eq",
             message: "建图诊断 output.in sr=\(rawFormat.sampleRate) ch=\(rawFormat.channelCount) output.out sr=\(outHwFormat.sampleRate) ch=\(outHwFormat.channelCount) env.out sr=\(environmentNode.outputFormat(forBus: 0).sampleRate) ch=\(environmentNode.outputFormat(forBus: 0).channelCount)")
-        // 本类在 PlayerManager 存储属性默认值阶段初始化，此时 AVAudioSession 尚未激活，
-        // 硬件采样率可能为 0。直接用它建连接格式会失败、导致整张图建不起来，
-        // 后续在 disconnected 图上 play 必崩。这里用安全回退采样率，引擎启动后
-        // 节点会按真实硬件格式自动做采样率转换。
-        let safeSR = rawFormat.sampleRate > 0 ? rawFormat.sampleRate : 48000
-        // 立体声连接格式（原音/旧链/环境节点输出）
+        // 硬件输出采样率优先（outputFormat 是物理硬件格式，最可靠），回退 inputFormat，再回退 48k。
+        let hwSR = outHwFormat.sampleRate > 0 ? outHwFormat.sampleRate : rawFormat.sampleRate
+        let safeSR = hwSR > 0 ? hwSR : 48000
+        // 立体声连接格式（节点内部处理，nonInterleaved）
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                          sampleRate: safeSR,
                                          channels: 2,
@@ -342,10 +342,13 @@ final class AudioEnginePlayer {
             print("[AudioEngine] mono format 创建失败，全景链不可用")
             return
         }
+        // 环境节点输出标准格式（对齐官方 AVAEGamingExample：
+        // initStandardFormatWithSampleRate channels:2，interleaved 标准立体声）。
+        let envOutFormat = AVAudioFormat(standardFormatWithSampleRate: safeSR, channels: 2) ?? format
 
         // 原音直通
         engine.connect(playerNode, to: directMix, format: format)
-        engine.connect(directMix, to: output, format: format)
+        engine.connect(directMix, to: mainMixer, format: format)
 
         // 三分频链
         engine.connect(playerNode, to: eqLow, format: format)
@@ -359,15 +362,15 @@ final class AudioEnginePlayer {
         engine.connect(eqHigh, to: delayHigh, format: format)
         engine.connect(delayHigh, to: mixHigh, format: format)
 
-        // 三路分频 → 混响 → 失真染色 → 输出
+        // 三路分频 → 混响 → 失真染色 → 主混音
         engine.connect(mixLow, to: reverb, format: format)
         engine.connect(mixMid, to: reverb, format: format)
         engine.connect(mixHigh, to: reverb, format: format)
         engine.connect(reverb, to: distortion, format: format)
-        engine.connect(distortion, to: output, format: format)
+        engine.connect(distortion, to: mainMixer, format: format)
 
         // 全景 HRTF 链：
-        // playerNode → 全景 EQ（立体声）→ 点声源（mono downmix）→ 环境节点（mono 才空间化）→ envMix → output
+        // playerNode → 全景 EQ（立体声）→ 点声源（mono downmix）→ 环境节点（mono 才空间化）
         engine.connect(playerNode, to: eqLowP, format: format)
         engine.connect(eqLowP, to: srcLow, format: monoFormat)
         engine.connect(srcLow, to: environmentNode, format: monoFormat)
@@ -380,8 +383,8 @@ final class AudioEnginePlayer {
         engine.connect(eqHighP, to: srcHigh, format: monoFormat)
         engine.connect(srcHigh, to: environmentNode, format: monoFormat)
 
-        engine.connect(environmentNode, to: envMix, format: format)
-        engine.connect(envMix, to: output, format: format)
+        // 环境节点直接连主混音（对齐官方：不经过中间 mixer），用标准立体声输出格式。
+        engine.connect(environmentNode, to: mainMixer, format: envOutFormat)
 
         // 多轨 HRTF 链（mono 接入环境节点，系统自动 downmix）：
         // 人声 → srcVocals（正前景点声源）→ environment
@@ -691,7 +694,7 @@ final class AudioEnginePlayer {
                                     delayLow, delayHigh, reverb, distortion, directMix,
                                     eqLowP, eqMidP, eqHighP,
                                     srcLow, srcMid, srcHigh,
-                                    environmentNode, envMix,
+                                    environmentNode,
                                     playerVocals, playerAcc,
                                     srcVocals, srcAccL, srcAccR]
         for n in nodes {
@@ -891,7 +894,7 @@ final class AudioEnginePlayer {
         mixMid.pan = 0
         mixHigh.pan = 0
         // 全景环境链关断（与旧链互斥）
-        envMix.outputVolume = 0
+        environmentNode.outputVolume = 0
         srcLow.outputVolume = 0
         srcMid.outputVolume = 0
         srcHigh.outputVolume = 0
@@ -943,7 +946,7 @@ final class AudioEnginePlayer {
             // 人声/主旋律作为「前景点声源」定位在正前方、最近、最突出；
             // 低频/高频伴奏作为左右对称的点声源，配合环境混响把空间包裹到四周。
             // 距离衰减已关闭，位置只决定方位，响度由 outputVolume 精确控制。
-            envMix.outputVolume = 1.0   // 打开全景总输出
+            environmentNode.outputVolume = 1.0   // 打开全景总输出
 
             // 人声（中频）：正前方居中、距离最近 → 前景 C 位
             srcMid.position = AVAudio3DPoint(x: 0, y: 0, z: -1.6)
@@ -1039,8 +1042,8 @@ final class AudioEnginePlayer {
     private func configureMultiTrackSources() {
         // 本函数在 ensureEngineRunning 之前调用，需先确保节点已 attach/connect
         ensureGraphBuilt()
-        // 链路互斥：多轨走 environment → envMix，关闭单文件点声源与直通，避免串音
-        envMix.outputVolume = 1
+        // 链路互斥：多轨走 environment → mainMixer，关闭单文件点声源与直通，避免串音
+        environmentNode.outputVolume = 1
         directMix.outputVolume = 0
         srcLow.outputVolume = 0
         srcMid.outputVolume = 0
