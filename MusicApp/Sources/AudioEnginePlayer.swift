@@ -179,10 +179,26 @@ final class AudioEnginePlayer {
     /// NSException "player started when in a disconnected state"。
     /// 监听配置变化后置 false，下次播放前自动重建 graph。
     private var graphValid = true
+    /// 图是否已建立（区别于 graphValid：graphBuilt 表示节点是否已 attach/connect 过）。
+    /// 本类作为 PlayerManager 存储属性，在其 init 体 setActive 之前初始化，
+    /// 此时会话未激活、硬件采样率为 0，不能建图，故延迟到首次播放前。
+    private var graphBuilt = false
 
     init() {
         configureNodes()
+        // 不在此建图：AVAudioSession 尚未激活（PlayerManager 存储属性先于其 init 体初始化），
+        // 此时 outputNode 硬件采样率为 0，建出的连接无效——engine.start() 虽不抛错，
+        // 但 playerNode 实际处于 disconnected，play 时抛不可捕获异常而闪退。
+        // 延迟到 ensureGraphBuilt（首次 prepare/ensureEngineRunning，会话已激活）再建图。
+    }
+
+    /// 延迟建图入口：仅在首次调用时按当前真实硬件格式建立整张图。
+    /// 调用时机均在 AVAudioSession 激活之后，outputNode 采样率有效。
+    private func ensureGraphBuilt() {
+        guard !graphBuilt else { return }
         buildGraph()
+        graphBuilt = true
+        graphValid = true
     }
 
     private func configureNodes() {
@@ -534,6 +550,7 @@ final class AudioEnginePlayer {
     /// 这里检测到未运行就重启并重新挂载，从推算位置续播（进度不丢）。
     func restartIfNeeded() {
         guard isPlaying else { return }
+        ensureGraphBuilt()
         // 配置变化后旧连接失效：先重建 graph 再恢复（防 disconnected 崩溃）
         if !graphValid {
             rebuildGraph()
@@ -600,6 +617,8 @@ final class AudioEnginePlayer {
     /// NSException（"player started when in a disconnected state"）→ 必须前置拦截。
     @discardableResult
     private func ensureEngineRunning() -> Bool {
+        // 延迟建图：首次播放时（会话已激活）才建立节点连接
+        ensureGraphBuilt()
         // graph 失效时先重建连接（系统配置变化后旧连接不可用）
         if !graphValid {
             rebuildGraph()
@@ -623,6 +642,7 @@ final class AudioEnginePlayer {
     /// 若在下载/暂停中，先重建好新连接，保证任何后续 start/play 都走有效图，
     /// 消除 "player started when in a disconnected state" 崩溃窗口。
     func rebuildGraphIfNeeded() {
+        ensureGraphBuilt()
         if graphValid && engine.isRunning { return }
         rebuildGraph()
         guard isPlaying else { return }
@@ -675,6 +695,7 @@ final class AudioEnginePlayer {
             engine.detach(n)
         }
         buildGraph()
+        graphBuilt = true
         graphValid = true
         LogReporter.shared.log(level: "info", tag: "eq", message: "engine graph 已重建")
     }
@@ -1013,6 +1034,8 @@ final class AudioEnginePlayer {
 
     /// 配置多轨点声源的 3D 方位与 HRTF 参数（距离衰减已关闭，位置只决定方位）。
     private func configureMultiTrackSources() {
+        // 本函数在 ensureEngineRunning 之前调用，需先确保节点已 attach/connect
+        ensureGraphBuilt()
         // 链路互斥：多轨走 environment → envMix，关闭单文件点声源与直通，避免串音
         envMix.outputVolume = 1
         directMix.outputVolume = 0
