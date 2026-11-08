@@ -52,3 +52,23 @@ jobs:
         with:
           name: MusicApp-unsigned-ipa
           path: MusicApp/build/ipa/MusicApp-unsigned.ipa
+
+      - name: Package dSYMs
+        if: always()
+        run: |
+          cd MusicApp
+          mkdir -p build/dsym
+          DSYM_DIR=build/MusicApp.xcarchive/dSYMs
+          ls -la "$DSYM_DIR" 2>/dev/null || echo "(missing)"
+          if [ -d "$DSYM_DIR" ] && [ -n "$(ls -A "$DSYM_DIR" 2>/dev/null)" ]; then
+            (cd "$DSYM_DIR" && zip -r "$GITHUB_WORKSPACE/MusicApp/build/dsym/MusicApp-dSYMs.zip" .) || true
+          fi
+          if [ ! -f build/dsym/MusicApp-dSYMs.zip ]; then echo "no dsym" > build/dsym/README.txt; fi
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MusicApp-dSYMs
+          path: MusicApp/build/dsym
+          if-no-files-found: warn
