@@ -254,8 +254,11 @@ final class AudioEnginePlayer {
         environmentNode.reverbParameters.loadFactoryReverbPreset(.mediumHall)
         environmentNode.outputVolume = 1.0
         // 关闭距离衰减：3D 位置只决定方位，不引入额外电平变化，
-        // 响度完全由各声源 outputVolume 精确控制（保证切换音效时响度一致）
-        environmentNode.distanceAttenuationParameters.distanceAttenuationModel = .none
+        // 响度完全由各声源 outputVolume 精确控制（保证切换音效时响度一致）。
+        // 注意：该枚举无 .none，用 exponential + rolloffFactor=0 等价于禁用衰减。
+        let dist = environmentNode.distanceAttenuationParameters
+        dist.distanceAttenuationModel = .exponential
+        dist.rolloffFactor = 0
         // 声源默认输出关断（apply 的 .panorama 分支再开启），避免启动瞬间串音
         srcLow.outputVolume = 0
         srcMid.outputVolume = 0

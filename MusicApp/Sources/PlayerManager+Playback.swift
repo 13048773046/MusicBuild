@@ -478,6 +478,9 @@ extension PlayerManager {
             }
             _ = await MainActor.run { self.activeBitrate = bitrate }
             guard !Task.isCancelled else { return }
+            // 先在 async 上下文取引擎模式与分离状态（同步的 MainActor.run 闭包内不能 await）
+            let engineMode = await MainActor.run { Self.engineMode(for: self.selectedEQ) }
+            let stem = (engineMode == .panorama) ? await API.stemInfo(for: trackId, trigger: true) : nil
             await MainActor.run {
                 // 切歌后旧任务迟到响应直接丢弃，防止覆盖新歌状态
                 guard self.current?.id == trackId else { return }
@@ -518,11 +521,10 @@ extension PlayerManager {
                             self.handlePlaybackFailure()
                         }
                     }
-                    let engineMode = Self.engineMode(for: self.selectedEQ)
-                    // 全景模式：优先用服务端分离的人声/伴奏多轨；未就绪则回退单文件 HRTF，
-                    // 同时 trigger=1 让服务端后台分离，下次播放即生效。
+                    // 全景模式：优先用服务端分离的人声/伴奏多轨；未就绪则回退单文件 HRTF
+                    // （stemInfo 已在闭包外请求，trigger=1 已让服务端后台分离，下次播放即生效）
                     if engineMode == .panorama,
-                       let stem = await API.stemInfo(for: current.id, trigger: true),
+                       let stem,
                        stem.status == "done",
                        let vStr = stem.vocalsUrl, let aStr = stem.accUrl,
                        let vURL = URL(string: vStr), let aURL = URL(string: aStr) {
