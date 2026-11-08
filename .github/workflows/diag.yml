@@ -1,0 +1,16 @@
+name: diag
+on: workflow_dispatch
+
+jobs:
+  linux-test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "linux runner OK"
+  mac-test:
+    runs-on: macos-latest
+    steps:
+      - run: echo "mac runner OK"
+  mac14-test:
+    runs-on: macos-14
+    steps:
+      - run: echo "mac14 runner OK"
