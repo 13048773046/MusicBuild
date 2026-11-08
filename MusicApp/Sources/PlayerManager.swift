@@ -125,6 +125,17 @@ final class PlayerManager: NSObject, ObservableObject {
     @Published var engineSwitchInProgress: Bool = false
     /// 引擎整曲下载进度 0...1（engineSwitchInProgress 期间有效）
     @Published var engineDownloadFraction: Double = 0
+    /// 音效操作的短暂提示（加载成功/失败/已生效），nil 不显示；自动延时消失。
+    @Published var eqToast: String?
+    private var eqToastWorkItem: DispatchWorkItem?
+    /// 弹出音效提示（2 秒后自动消失；连续调用以最新为准）。
+    func showEQToast(_ text: String) {
+        eqToastWorkItem?.cancel()
+        eqToast = text
+        let work = DispatchWorkItem { [weak self] in self?.eqToast = nil }
+        eqToastWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+    }
     /// 弱网播放 UI：当前是否离线（失败视图文案区分「网络未连接」与「加载失败」）
     var networkOffline: Bool { NetworkMonitor.shared.isOffline }
     /// 当前播放曲目的码率档（弱网=low 96k，Wi-Fi=原码率；供引擎下载/缓存键一致使用）

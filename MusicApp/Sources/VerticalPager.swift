@@ -584,6 +584,23 @@ struct PlayerCard: View {
                 .frame(maxWidth: .infinity)
 
             }
+            // 音效操作反馈（加载成功/失败/已生效），顶部胶囊提示
+            .overlay(alignment: .top) {
+                if let toast = player.eqToast {
+                    Text(toast)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Color.black.opacity(0.78),
+                                    in: Capsule(style: .continuous))
+                        .padding(.top, 10)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85),
+                       value: player.eqToast)
             // 背景偏浅→深色状态栏文字；背景偏深→白色状态栏文字（沉浸式适配）
             .preferredColorScheme(onLight ? .light : .dark)
         }

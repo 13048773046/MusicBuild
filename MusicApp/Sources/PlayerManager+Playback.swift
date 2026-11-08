@@ -31,6 +31,7 @@ extension PlayerManager {
                 } else {
                     // 引擎模式间切换：直接换参数，无需重载
                     enginePlayer.setMode(newMode)
+                    showEQToast("\(name)已生效")
                     LogReporter.shared.log(level: "info", tag: "eq", message: "applyEQ 引擎模式内切换完成 name=\(name)")
                     updateNowPlaying(force: true)
                 }
@@ -106,6 +107,7 @@ extension PlayerManager {
                                 self.engineSwitchInProgress = false
                                 self.engineDownloadFraction = 0
                                 self.selectedEQ = "原音"
+                                self.showEQToast("音效加载失败，已恢复原音")
                                 self.updateNowPlaying(force: true)
                             } else {
                                 self.handlePlaybackFailure()
@@ -136,6 +138,7 @@ extension PlayerManager {
                             self.player.replaceCurrentItem(with: nil)
                             LogReporter.shared.log(level: "info", tag: "eq",
                                                    message: "applyEQ 多轨接管成功 track=\(targetID) resume=\(resume)")
+                            self.showEQToast("全景音效已生效")
                             self.updateNowPlaying(force: true)
                         }
                     } else {
@@ -164,6 +167,7 @@ extension PlayerManager {
                             self.player.pause()
                             self.player.replaceCurrentItem(with: nil)
                             LogReporter.shared.log(level: "info", tag: "eq", message: "applyEQ 无缝接管成功 track=\(targetID) resume=\(resume)")
+                            self.showEQToast("\(name)已生效")
                             self.updateNowPlaying(force: true)
                         }
                     }
