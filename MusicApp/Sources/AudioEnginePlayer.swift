@@ -300,11 +300,24 @@ final class AudioEnginePlayer {
         engine.attach(srcAccR)
 
         let output = engine.outputNode
-        let format = output.inputFormat(forBus: 0)
+        let rawFormat = output.inputFormat(forBus: 0)
+        // 本类在 PlayerManager 存储属性默认值阶段初始化，此时 AVAudioSession 尚未激活，
+        // 硬件采样率可能为 0。直接用它建连接格式会失败、导致整张图建不起来，
+        // 后续在 disconnected 图上 play 必崩。这里用安全回退采样率，引擎启动后
+        // 节点会按真实硬件格式自动做采样率转换。
+        let safeSR = rawFormat.sampleRate > 0 ? rawFormat.sampleRate : 48000
+        // 立体声连接格式（原音/旧链/环境节点输出）
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                         sampleRate: safeSR,
+                                         channels: 2,
+                                         interleaved: false) else {
+            print("[AudioEngine] 立体声格式创建失败")
+            return
+        }
         fileFormat = format
         // 单声道连接格式：环境节点只对 mono 输入做空间化
         guard let monoFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                            sampleRate: format.sampleRate,
+                                            sampleRate: safeSR,
                                             channels: 1,
                                             interleaved: false) else {
             print("[AudioEngine] mono format 创建失败，全景链不可用")
