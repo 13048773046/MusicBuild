@@ -733,31 +733,59 @@ final class AudioEnginePlayer {
         guard !graphDiagnosticsDone else { return }
         graphDiagnosticsDone = true
 
-        // 阶段1：重建「无环境节点」基础图并测试 start
-        engine.stop()
-        detachAllNodes()
-        buildGraph(includeEnvironment: false)
-        do {
-            try engine.start()
-            LogReporter.shared.log(level: "info", tag: "eq",
-                                   message: "阶段诊断 基础图(无环境) start 成功 running=\(engine.isRunning)")
+        let mainMixer = engine.mainMixerNode
+        let outHw = engine.outputNode.outputFormat(forBus: 0)
+        let sr = outHw.sampleRate > 0 ? outHw.sampleRate : 48000
+        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr,
+                                      channels: 2, interleaved: false),
+              let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr,
+                                       channels: 1, interleaved: false) else { return }
+
+        // 每阶段：清图 → 搭一条活跃基础链（保证输出链有输入）→ 追加待测环境部分 → start
+        func testStage(_ stageName: String, extra: () -> Void) {
             engine.stop()
-        } catch {
-            LogReporter.shared.log(level: "error", tag: "eq",
-                                   message: "阶段诊断 基础图(无环境) start 失败 err=\(error)")
+            detachAllNodes()
+            engine.attach(playerNode)
+            engine.attach(directMix)
+            engine.connect(playerNode, to: directMix, format: fmt)
+            engine.connect(directMix, to: mainMixer, format: fmt)
+            extra()
+            do {
+                try engine.start()
+                LogReporter.shared.log(level: "info", tag: "eq",
+                                       message: "\(stageName) start 成功 running=\(engine.isRunning)")
+                engine.stop()
+            } catch {
+                LogReporter.shared.log(level: "error", tag: "eq",
+                                       message: "\(stageName) start 失败 err=\(error)")
+            }
         }
 
-        // 阶段2：重建完整图并测试 start
+        // 阶段 A：环境节点裸连 mainMixer（无任何输入源），验证环境节点输出连接本身
+        testStage("阶段A 环境节点裸连") {
+            engine.attach(environmentNode)
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
+        // 阶段 B：环境节点 + 一个 mono 点声源输入，验证输入连接格式
+        testStage("阶段B 环境+单mono输入") {
+            engine.attach(environmentNode)
+            engine.attach(srcMid)
+            engine.connect(srcMid, to: environmentNode, format: mono)
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
+        // 阶段 C：完整图（6 输入），由 buildGraph 重建
         detachAllNodes()
         buildGraph(includeEnvironment: true)
         do {
             try engine.start()
             LogReporter.shared.log(level: "info", tag: "eq",
-                                   message: "阶段诊断 完整图(含环境) start 成功 running=\(engine.isRunning)")
+                                   message: "阶段C 完整图 start 成功 running=\(engine.isRunning)")
         } catch {
             graphValid = false
             LogReporter.shared.log(level: "error", tag: "eq",
-                                   message: "阶段诊断 完整图(含环境) start 失败 err=\(error)")
+                                   message: "阶段C 完整图 start 失败 err=\(error)")
         }
     }
 
