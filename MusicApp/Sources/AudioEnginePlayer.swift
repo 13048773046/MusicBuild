@@ -775,6 +775,26 @@ final class AudioEnginePlayer {
             engine.connect(environmentNode, to: mainMixer, format: fmt)
         }
 
+        // 阶段 D：环境节点 + 3 个 mono 点声源（纯 mixer 直连，不接 EQ）
+        testStage("阶段D 环境+3输入") {
+            engine.attach(environmentNode)
+            for s in [srcLow, srcMid, srcHigh] {
+                engine.attach(s)
+                engine.connect(s, to: environmentNode, format: mono)
+            }
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
+        // 阶段 E：环境节点 + 6 个 mono 点声源（全部 src 直连，不接 EQ/player）
+        testStage("阶段E 环境+6输入") {
+            engine.attach(environmentNode)
+            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
+                engine.attach(s)
+                engine.connect(s, to: environmentNode, format: mono)
+            }
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
         // 阶段 C：完整图（6 输入），由 buildGraph 重建
         detachAllNodes()
         buildGraph(includeEnvironment: true)
