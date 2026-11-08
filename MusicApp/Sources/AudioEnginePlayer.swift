@@ -198,6 +198,8 @@ final class AudioEnginePlayer {
         buildGraph()
         graphBuilt = true
         graphValid = true
+        // 首次建图自动跑一次分阶段启动诊断（仅一次），隔离环境节点定位 -10868。
+        runGraphStartDiagnostics()
     }
 
     private func configureNodes() {
@@ -286,7 +288,7 @@ final class AudioEnginePlayer {
         srcAccR.outputVolume = 0
     }
 
-    private func buildGraph() {
+    private func buildGraph(includeEnvironment: Bool = true) {
         engine.attach(playerNode)
         engine.attach(eqLow)
         engine.attach(eqMid)
@@ -299,6 +301,7 @@ final class AudioEnginePlayer {
         engine.attach(reverb)
         engine.attach(distortion)
         engine.attach(directMix)
+        if includeEnvironment {
         // 全景链节点
         engine.attach(eqLowP)
         engine.attach(eqMidP)
@@ -313,6 +316,7 @@ final class AudioEnginePlayer {
         engine.attach(srcVocals)
         engine.attach(srcAccL)
         engine.attach(srcAccR)
+        }
 
         let output = engine.outputNode
         let rawFormat = output.inputFormat(forBus: 0)
@@ -320,8 +324,11 @@ final class AudioEnginePlayer {
         // 最终汇聚点：用引擎内置 mainMixerNode（系统自动连接 output），
         // 不再让多条链路直接连 outputNode——避免与隐式 mainMixer 图冲突。
         let mainMixer = engine.mainMixerNode
+        let envDiag = includeEnvironment
+            ? "env.out sr=\(environmentNode.outputFormat(forBus: 0).sampleRate) ch=\(environmentNode.outputFormat(forBus: 0).channelCount)"
+            : "env=excluded"
         LogReporter.shared.log(level: "info", tag: "eq",
-            message: "建图诊断 output.in sr=\(rawFormat.sampleRate) ch=\(rawFormat.channelCount) output.out sr=\(outHwFormat.sampleRate) ch=\(outHwFormat.channelCount) env.out sr=\(environmentNode.outputFormat(forBus: 0).sampleRate) ch=\(environmentNode.outputFormat(forBus: 0).channelCount)")
+            message: "建图诊断 output.in sr=\(rawFormat.sampleRate) ch=\(rawFormat.channelCount) output.out sr=\(outHwFormat.sampleRate) ch=\(outHwFormat.channelCount) \(envDiag)")
         // 硬件输出采样率优先（outputFormat 是物理硬件格式，最可靠），回退 inputFormat，再回退 48k。
         let hwSR = outHwFormat.sampleRate > 0 ? outHwFormat.sampleRate : rawFormat.sampleRate
         let safeSR = hwSR > 0 ? hwSR : 48000
@@ -365,6 +372,8 @@ final class AudioEnginePlayer {
         engine.connect(mixHigh, to: reverb, format: format)
         engine.connect(reverb, to: distortion, format: format)
         engine.connect(distortion, to: mainMixer, format: format)
+
+        guard includeEnvironment else { return }
 
         // 全景 HRTF 链：
         // playerNode → 全景 EQ（立体声）→ 点声源（mono downmix）→ 环境节点（mono 才空间化）
@@ -692,23 +701,64 @@ final class AudioEnginePlayer {
     /// 重建引擎图（detach 全部节点 → 重新 attach + connect）。
     /// 仅在 graph 失效或首次播放前调用；audioFile/schedule 状态不受影响，
     /// 重建后 engine 需重新 start（由 ensureEngineRunning 完成）。
+    /// 全部可挂载节点（detach / 诊断统一使用，避免列表遗漏）。
+    private var allNodes: [AVAudioNode] {
+        [playerNode, eqLow, eqMid, eqHigh,
+         mixLow, mixMid, mixHigh,
+         delayLow, delayHigh, reverb, distortion, directMix,
+         eqLowP, eqMidP, eqHighP,
+         srcLow, srcMid, srcHigh,
+         environmentNode,
+         playerVocals, playerAcc,
+         srcVocals, srcAccL, srcAccR]
+    }
+
+    private func detachAllNodes() {
+        for n in allNodes { engine.detach(n) }
+    }
+
     private func rebuildGraph() {
         engine.stop()
-        let nodes: [AVAudioNode] = [playerNode, eqLow, eqMid, eqHigh,
-                                    mixLow, mixMid, mixHigh,
-                                    delayLow, delayHigh, reverb, distortion, directMix,
-                                    eqLowP, eqMidP, eqHighP,
-                                    srcLow, srcMid, srcHigh,
-                                    environmentNode,
-                                    playerVocals, playerAcc,
-                                    srcVocals, srcAccL, srcAccR]
-        for n in nodes {
-            engine.detach(n)
-        }
+        detachAllNodes()
         buildGraph()
         graphBuilt = true
         graphValid = true
         LogReporter.shared.log(level: "info", tag: "eq", message: "engine graph 已重建")
+    }
+
+    /// 首次建图自动分阶段启动诊断：隔离环境节点，一次真机日志定位 -10868 根因。
+    /// 阶段1：无环境节点的基础图 start；阶段2：完整图 start。分别记录成功/失败。
+    private var graphDiagnosticsDone = false
+    func runGraphStartDiagnostics() {
+        guard !graphDiagnosticsDone else { return }
+        graphDiagnosticsDone = true
+
+        // 阶段1：重建「无环境节点」基础图并测试 start
+        engine.stop()
+        detachAllNodes()
+        buildGraph(includeEnvironment: false)
+        do {
+            try engine.start()
+            LogReporter.shared.log(level: "info", tag: "eq",
+                                   message: "阶段诊断 基础图(无环境) start 成功 running=\(engine.isRunning)")
+            engine.stop()
+        } catch {
+            LogReporter.shared.log(level: "error", tag: "eq",
+                                   message: "阶段诊断 基础图(无环境) start 失败 err=\(error)")
+        }
+
+        // 阶段2：重建完整图并测试 start
+        detachAllNodes()
+        buildGraph(includeEnvironment: true)
+        do {
+            try engine.start()
+            LogReporter.shared.log(level: "info", tag: "eq",
+                                   message: "阶段诊断 完整图(含环境) start 成功 running=\(engine.isRunning)")
+        } catch {
+            graphValid = false
+            LogReporter.shared.log(level: "error", tag: "eq",
+                                   message: "阶段诊断 完整图(含环境) start 失败 err=\(error)")
+        }
     }
 
     func play() {
