@@ -317,6 +317,9 @@ final class AudioEnginePlayer {
 
         let output = engine.outputNode
         let rawFormat = output.inputFormat(forBus: 0)
+        let outHwFormat = output.outputFormat(forBus: 0)
+        LogReporter.shared.log(level: "info", tag: "eq",
+            message: "建图诊断 output.in sr=\(rawFormat.sampleRate) ch=\(rawFormat.channelCount) output.out sr=\(outHwFormat.sampleRate) ch=\(outHwFormat.channelCount) env.render sr=\(environmentNode.renderingFormat.sampleRate) ch=\(environmentNode.renderingFormat.channelCount) env.out sr=\(environmentNode.outputFormat(forBus: 0).sampleRate) ch=\(environmentNode.outputFormat(forBus: 0).channelCount)")
         // 本类在 PlayerManager 存储属性默认值阶段初始化，此时 AVAudioSession 尚未激活，
         // 硬件采样率可能为 0。直接用它建连接格式会失败、导致整张图建不起来，
         // 后续在 disconnected 图上 play 必崩。这里用安全回退采样率，引擎启动后
