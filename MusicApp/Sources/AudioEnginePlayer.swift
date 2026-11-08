@@ -409,6 +409,9 @@ final class AudioEnginePlayer {
         let mixerIn = mainMixer.inputFormat(forBus: 0)
         LogReporter.shared.log(level: "info", tag: "eq",
             message: "建图诊断(连接后) env.out sr=\(envOut.sampleRate) ch=\(envOut.channelCount) interleaved=\(envOut.isInterleaved) mixer.in sr=\(mixerIn.sampleRate) ch=\(mixerIn.channelCount) interleaved=\(mixerIn.isInterleaved)")
+        // 总线/element 核对：各汇聚节点的输入总线数与下一可用总线（排查 InvalidElement）。
+        LogReporter.shared.log(level: "info", tag: "eq",
+            message: "总线诊断 env.inputs=\(environmentNode.numberOfInputs) env.nextBus=\(environmentNode.nextAvailableInputBus) mixer.inputs=\(mainMixer.numberOfInputs) mixer.nextBus=\(mainMixer.nextAvailableInputBus)")
     }
 
     // MARK: - 播放控制
