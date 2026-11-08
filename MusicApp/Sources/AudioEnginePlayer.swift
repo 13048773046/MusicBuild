@@ -342,9 +342,6 @@ final class AudioEnginePlayer {
             print("[AudioEngine] mono format 创建失败，全景链不可用")
             return
         }
-        // 环境节点输出标准格式（对齐官方 AVAEGamingExample：
-        // initStandardFormatWithSampleRate channels:2，interleaved 标准立体声）。
-        let envOutFormat = AVAudioFormat(standardFormatWithSampleRate: safeSR, channels: 2) ?? format
 
         // 原音直通
         engine.connect(playerNode, to: directMix, format: format)
@@ -383,8 +380,10 @@ final class AudioEnginePlayer {
         engine.connect(eqHighP, to: srcHigh, format: monoFormat)
         engine.connect(srcHigh, to: environmentNode, format: monoFormat)
 
-        // 环境节点直接连主混音（对齐官方：不经过中间 mixer），用标准立体声输出格式。
-        engine.connect(environmentNode, to: mainMixer, format: envOutFormat)
+        // 环境节点连「内部主混音」必须用 nonInterleaved 处理格式（与其他内部节点一致）。
+        // 注意：官方示例的 initStandardFormat(interleaved) 仅适用于环境节点直连「硬件 outputNode」；
+        // 连到 mainMixer 这种内部节点时用 interleaved 会导致 AUGraph 初始化失败 -10868。
+        engine.connect(environmentNode, to: mainMixer, format: format)
 
         // 多轨 HRTF 链（mono 接入环境节点，系统自动 downmix）：
         // 人声 → srcVocals（正前景点声源）→ environment
@@ -395,6 +394,12 @@ final class AudioEnginePlayer {
         engine.connect(srcAccL, to: environmentNode, format: monoFormat)
         engine.connect(playerAcc, to: srcAccR, format: monoFormat)
         engine.connect(srcAccR, to: environmentNode, format: monoFormat)
+
+        // 连接后核对：环境节点输出与 mainMixer 输入的真实格式（含 interleaved 状态）。
+        let envOut = environmentNode.outputFormat(forBus: 0)
+        let mixerIn = mainMixer.inputFormat(forBus: 0)
+        LogReporter.shared.log(level: "info", tag: "eq",
+            message: "建图诊断(连接后) env.out sr=\(envOut.sampleRate) ch=\(envOut.channelCount) interleaved=\(envOut.isInterleaved) mixer.in sr=\(mixerIn.sampleRate) ch=\(mixerIn.channelCount) interleaved=\(mixerIn.isInterleaved)")
     }
 
     // MARK: - 播放控制
