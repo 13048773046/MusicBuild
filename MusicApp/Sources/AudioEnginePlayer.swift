@@ -581,10 +581,10 @@ final class AudioEnginePlayer {
             let resume = currentFrame()   // 引擎停止期间进度时钟仍在走，以推算位置续播
             try engine.start()
             if multiTrack {
-                scheduleMulti(from: resume)
                 let when = AVAudioTime(hostTime: futureHostTime(seconds: 0.1))
-                playerVocals.play(at: when)
-                playerAcc.play(at: when)
+                scheduleMulti(from: resume, at: when)
+                playerVocals.play()
+                playerAcc.play()
                 playStartFrame = resume
                 playStartTime = CACurrentMediaTime() + 0.1
             } else {
@@ -670,10 +670,10 @@ final class AudioEnginePlayer {
             let resume = currentFrame()
             try engine.start()
             if multiTrack {
-                scheduleMulti(from: resume)
                 let when = AVAudioTime(hostTime: futureHostTime(seconds: 0.1))
-                playerVocals.play(at: when)
-                playerAcc.play(at: when)
+                scheduleMulti(from: resume, at: when)
+                playerVocals.play()
+                playerAcc.play()
                 playStartFrame = resume
                 playStartTime = CACurrentMediaTime() + 0.1
             } else {
@@ -732,8 +732,9 @@ final class AudioEnginePlayer {
         guard ensureEngineRunning() else { return }
         if multiTrack {
             let when = AVAudioTime(hostTime: futureHostTime(seconds: 0.1))
-            playerVocals.play(at: when)
-            playerAcc.play(at: when)
+            scheduleMulti(from: pausedFrame, at: when)
+            playerVocals.play()
+            playerAcc.play()
             playStartFrame = pausedFrame
             playStartTime = CACurrentMediaTime() + 0.1
         } else {
@@ -853,14 +854,16 @@ final class AudioEnginePlayer {
             let target = AVAudioFramePosition(seconds * vf.processingFormat.sampleRate)
             let clamped = max(0, min(target, multiTotalFrames - 1))
             pausedFrame = clamped
-            scheduleMulti(from: clamped)
             if isPlaying {
                 guard ensureEngineRunning() else { return }
                 let when = AVAudioTime(hostTime: futureHostTime(seconds: 0.1))
-                playerVocals.play(at: when)
-                playerAcc.play(at: when)
+                scheduleMulti(from: clamped, at: when)
+                playerVocals.play()
+                playerAcc.play()
                 playStartFrame = clamped
                 playStartTime = CACurrentMediaTime() + 0.1
+            } else {
+                scheduleMulti(from: clamped, at: nil)
             }
             return
         }
@@ -1140,7 +1143,7 @@ final class AudioEnginePlayer {
                 guard self.ensureEngineRunning() else {
                     self.onLoadingChanged?(false); self.onLoadFailed?(); return
                 }
-                self.scheduleMulti(from: 0)
+                self.scheduleMulti(from: 0, at: nil)
                 self.isPrepared = true
                 self.onLoadingChanged?(false)
                 completion()
@@ -1169,7 +1172,7 @@ final class AudioEnginePlayer {
     // MARK: - 多轨同步调度与播放
 
     /// 同步调度两条音轨（从同一帧开始），统一 hostTime 保证 sample-accurate。
-    private func scheduleMulti(from frame: AVAudioFramePosition) {
+    private func scheduleMulti(from frame: AVAudioFramePosition, at when: AVAudioTime?) {
         guard let vf = vocalsFile, let af = accFile, multiTotalFrames > 0 else { return }
         playerVocals.stop()
         playerAcc.stop()
@@ -1177,13 +1180,13 @@ final class AudioEnginePlayer {
         let gen = multiGen
         let count = AVAudioFrameCount(multiTotalFrames - frame)
         guard count > 0 else { return }
-        playerVocals.scheduleSegment(vf, startingFrame: frame, frameCount: count, at: nil) {
+        playerVocals.scheduleSegment(vf, startingFrame: frame, frameCount: count, at: when) {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.multiGen == gen, self.isPlaying else { return }
                 self.onCompletion?()
             }
         }
-        playerAcc.scheduleSegment(af, startingFrame: frame, frameCount: count, at: nil)
+        playerAcc.scheduleSegment(af, startingFrame: frame, frameCount: count, at: when)
     }
 
     /// 多轨世代号（同 scheduleGen，区分完成/打断）
@@ -1195,18 +1198,22 @@ final class AudioEnginePlayer {
         let target = AVAudioFramePosition(seconds * vf.processingFormat.sampleRate)
         let clamped = max(0, min(target, multiTotalFrames - 1))
         pausedFrame = clamped
-        scheduleMulti(from: clamped)
+        guard ensureEngineRunning() else { return }
         if autoPlay {
-            guard ensureEngineRunning() else { return }
-            // 统一未来时刻启动，两节点 sample-accurate 对齐
+            // sample-accurate：两个 segment 指定同一未来渲染时间，再 play() 启动节点。
+            // 注意：不能用 at:nil schedule 再 play(at:future)——at:nil 的事件会落在
+            // 节点过去时间线，启动后被错过，导致无声。
             let hostTime = futureHostTime(seconds: 0.15)
             let when = AVAudioTime(hostTime: hostTime)
-            playerVocals.play(at: when)
-            playerAcc.play(at: when)
+            scheduleMulti(from: clamped, at: when)
+            playerVocals.play()
+            playerAcc.play()
             isPlaying = true
             playStartFrame = clamped
             playStartTime = CACurrentMediaTime() + 0.15
             startTimer()
+        } else {
+            scheduleMulti(from: clamped, at: nil)
         }
     }
 
