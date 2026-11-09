@@ -288,7 +288,7 @@ final class AudioEnginePlayer {
         srcAccR.outputVolume = 0
     }
 
-    private func buildGraph(includeEnvironment: Bool = true) {
+    private func buildGraph(includeEnvironment: Bool = true, includeMultiTrack: Bool = true) {
         engine.attach(playerNode)
         engine.attach(eqLow)
         engine.attach(eqMid)
@@ -310,12 +310,15 @@ final class AudioEnginePlayer {
         engine.attach(srcMid)
         engine.attach(srcHigh)
         engine.attach(environmentNode)
-        // 多轨节点
-        engine.attach(playerVocals)
-        engine.attach(playerAcc)
+        // 多轨点声源（mixer，6 输入之一，始终 attach）
         engine.attach(srcVocals)
         engine.attach(srcAccL)
         engine.attach(srcAccR)
+        // 多轨播放器节点（仅多轨模式需要）
+        if includeMultiTrack {
+            engine.attach(playerVocals)
+            engine.attach(playerAcc)
+        }
         }
 
         let output = engine.outputNode
@@ -394,15 +397,18 @@ final class AudioEnginePlayer {
         // 连到 mainMixer 这种内部节点时用 interleaved 会导致 AUGraph 初始化失败 -10868。
         engine.connect(environmentNode, to: mainMixer, format: format)
 
-        // 多轨 HRTF 链（mono 接入环境节点，系统自动 downmix）：
-        // 人声 → srcVocals（正前景点声源）→ environment
-        // 伴奏 → srcAccL / srcAccR（左后、右后点声源）→ environment
-        engine.connect(playerVocals, to: srcVocals, format: monoFormat)
+        // 多轨点声源 → 环境节点（6 输入的一部分，始终连接）
         engine.connect(srcVocals, to: environmentNode, format: monoFormat)
-        engine.connect(playerAcc, to: srcAccL, format: monoFormat)
         engine.connect(srcAccL, to: environmentNode, format: monoFormat)
-        engine.connect(playerAcc, to: srcAccR, format: monoFormat)
         engine.connect(srcAccR, to: environmentNode, format: monoFormat)
+        // 多轨播放器 → 点声源（仅多轨模式）
+        if includeMultiTrack {
+            // 人声 → srcVocals（正前景点声源）
+            engine.connect(playerVocals, to: srcVocals, format: monoFormat)
+            // 伴奏 → srcAccL / srcAccR（左后、右后点声源）
+            engine.connect(playerAcc, to: srcAccL, format: monoFormat)
+            engine.connect(playerAcc, to: srcAccR, format: monoFormat)
+        }
 
         // 连接后核对：环境节点输出与 mainMixer 输入的真实格式（含 interleaved 状态）。
         let envOut = environmentNode.outputFormat(forBus: 0)
@@ -798,7 +804,20 @@ final class AudioEnginePlayer {
             engine.connect(environmentNode, to: mainMixer, format: fmt)
         }
 
-        // 阶段 C：完整图（6 输入），由 buildGraph 重建
+        // 阶段 F：完整图但不含多轨播放器（含全景 EQ + 三分频全套），二分定位
+        detachAllNodes()
+        buildGraph(includeEnvironment: true, includeMultiTrack: false)
+        do {
+            try engine.start()
+            LogReporter.shared.log(level: "info", tag: "eq",
+                                   message: "阶段F 无多轨播放器完整图 start 成功 running=\(engine.isRunning)")
+            engine.stop()
+        } catch {
+            LogReporter.shared.log(level: "error", tag: "eq",
+                                   message: "阶段F 无多轨播放器完整图 start 失败 err=\(error)")
+        }
+
+        // 阶段 C：完整图（6 输入 + 多轨播放器），由 buildGraph 重建
         detachAllNodes()
         buildGraph(includeEnvironment: true)
         do {
