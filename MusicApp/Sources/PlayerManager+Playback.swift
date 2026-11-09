@@ -490,13 +490,17 @@ extension PlayerManager {
             await MainActor.run {
                 // 切歌后旧任务迟到响应直接丢弃，防止覆盖新歌状态
                 guard self.current?.id == trackId else { return }
-                // 全景未就绪（后端还没分离这首歌）：自动切回原音，走 AVPlayer，
-                // 而不是保留全景选择走单文件 HRTF。trigger 已让后端后台分离，下次播放即生效。
-                if engineMode == .panorama, stem?.status != "done" {
-                    self.selectedEQ = "原音"
-                    self.usingEngine = false
-                    self.enginePlayer.stop()
-                    self.showEQToast("该歌曲暂无全景，已恢复原音")
+                // 实际生效模式：用户偏好全景（selectedEQ 保留，不被覆盖），但当前歌后端
+                // 未分离完成时，本次走原音；切到下一首再重新判断，有全景会自动切回。
+                let panoramaReady = (engineMode == .panorama && stem?.status == "done")
+                if engineMode == .panorama {
+                    self.usingEngine = panoramaReady
+                    if !panoramaReady {
+                        self.enginePlayer.stop()
+                        self.showEQToast("该歌曲暂无全景，已恢复原音")
+                    }
+                } else {
+                    self.usingEngine = (engineMode != .original)
                 }
                 if self.usingEngine {
                     self.enginePlayer.onProgress = { [weak self] cur, dur in

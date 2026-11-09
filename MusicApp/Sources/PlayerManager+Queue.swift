@@ -122,7 +122,10 @@ extension PlayerManager {
         // syncIndexWithPlayer 保留作兜底防御：万一仍有外部因素（如遥控/系统行为）
         // 改变了 currentItem，先把索引同步到实际正在播放的歌曲，再决定是否推进。
         let prevIndex = currentIndex
-        let autoAdvanced = syncIndexWithPlayer()
+        // 引擎接管期间 AVQueuePlayer 一直被暂停（currentItem 可能已被预取项占据，但并非
+        // 正在播放）。此时不能用 syncIndexWithPlayer 的 autoAdvanced 结果——它会让 next()
+        // 误以为下一首已在播、走免播放分支，结果切歌后无声。引擎模式强制顺序切歌 + playCurrent。
+        let autoAdvanced = usingEngine ? false : syncIndexWithPlayer()
         switch playMode {
         case .singleLoop:
             // 单曲循环：无论自动前进到哪，都重播「刚播完的这首」
