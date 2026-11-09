@@ -116,6 +116,9 @@ final class AudioEnginePlayer {
     private var totalFrames: AVAudioFramePosition = 0
     private var isPlaying = false
     private var mode: Mode = .original
+    /// 当前模式是否需要环境节点（仅全景 HRTF 需要）。
+    /// 其余音效只走三分频链，不把环境节点接进图——避免无关节点导致 AUGraph 初始化失败 -10868。
+    private var needsEnvironment: Bool { mode == .panorama }
     /// 播放起点帧与起点时刻（可靠时钟进度计算）
     private var playStartFrame: AVAudioFramePosition = 0
     private var playStartTime: TimeInterval = 0
@@ -195,11 +198,9 @@ final class AudioEnginePlayer {
     /// 调用时机均在 AVAudioSession 激活之后，outputNode 采样率有效。
     private func ensureGraphBuilt() {
         guard !graphBuilt else { return }
-        buildGraph()
+        buildGraph(includeEnvironment: needsEnvironment)
         graphBuilt = true
         graphValid = true
-        // 首次建图自动跑一次分阶段启动诊断（仅一次），隔离环境节点定位 -10868。
-        runGraphStartDiagnostics()
     }
 
     private func configureNodes() {
@@ -327,11 +328,6 @@ final class AudioEnginePlayer {
         // 最终汇聚点：用引擎内置 mainMixerNode（系统自动连接 output），
         // 不再让多条链路直接连 outputNode——避免与隐式 mainMixer 图冲突。
         let mainMixer = engine.mainMixerNode
-        let envDiag = includeEnvironment
-            ? "env.out sr=\(environmentNode.outputFormat(forBus: 0).sampleRate) ch=\(environmentNode.outputFormat(forBus: 0).channelCount)"
-            : "env=excluded"
-        LogReporter.shared.log(level: "info", tag: "eq",
-            message: "建图诊断 output.in sr=\(rawFormat.sampleRate) ch=\(rawFormat.channelCount) output.out sr=\(outHwFormat.sampleRate) ch=\(outHwFormat.channelCount) \(envDiag)")
         // 硬件输出采样率优先（outputFormat 是物理硬件格式，最可靠），回退 inputFormat，再回退 48k。
         let hwSR = outHwFormat.sampleRate > 0 ? outHwFormat.sampleRate : rawFormat.sampleRate
         let safeSR = hwSR > 0 ? hwSR : 48000
@@ -409,15 +405,6 @@ final class AudioEnginePlayer {
             engine.connect(playerAcc, to: srcAccL, format: monoFormat)
             engine.connect(playerAcc, to: srcAccR, format: monoFormat)
         }
-
-        // 连接后核对：环境节点输出与 mainMixer 输入的真实格式（含 interleaved 状态）。
-        let envOut = environmentNode.outputFormat(forBus: 0)
-        let mixerIn = mainMixer.inputFormat(forBus: 0)
-        LogReporter.shared.log(level: "info", tag: "eq",
-            message: "建图诊断(连接后) env.out sr=\(envOut.sampleRate) ch=\(envOut.channelCount) interleaved=\(envOut.isInterleaved) mixer.in sr=\(mixerIn.sampleRate) ch=\(mixerIn.channelCount) interleaved=\(mixerIn.isInterleaved)")
-        // 总线/element 核对：各汇聚节点的输入总线数与下一可用总线（排查 InvalidElement）。
-        LogReporter.shared.log(level: "info", tag: "eq",
-            message: "总线诊断 env.inputs=\(environmentNode.numberOfInputs) env.nextBus=\(environmentNode.nextAvailableInputBus) mixer.inputs=\(mainMixer.numberOfInputs) mixer.nextBus=\(mainMixer.nextAvailableInputBus)")
     }
 
     // MARK: - 播放控制
@@ -710,7 +697,7 @@ final class AudioEnginePlayer {
     /// 重建引擎图（detach 全部节点 → 重新 attach + connect）。
     /// 仅在 graph 失效或首次播放前调用；audioFile/schedule 状态不受影响，
     /// 重建后 engine 需重新 start（由 ensureEngineRunning 完成）。
-    /// 全部可挂载节点（detach / 诊断统一使用，避免列表遗漏）。
+    /// 全部可挂载节点（detach 统一使用，避免列表遗漏）。
     private var allNodes: [AVAudioNode] {
         [playerNode, eqLow, eqMid, eqHigh,
          mixLow, mixMid, mixHigh,
@@ -729,150 +716,10 @@ final class AudioEnginePlayer {
     private func rebuildGraph() {
         engine.stop()
         detachAllNodes()
-        buildGraph()
+        buildGraph(includeEnvironment: needsEnvironment)
         graphBuilt = true
         graphValid = true
-        LogReporter.shared.log(level: "info", tag: "eq", message: "engine graph 已重建")
-    }
-
-    /// 首次建图自动分阶段启动诊断：隔离环境节点，一次真机日志定位 -10868 根因。
-    /// 阶段1：无环境节点的基础图 start；阶段2：完整图 start。分别记录成功/失败。
-    private var graphDiagnosticsDone = false
-    func runGraphStartDiagnostics() {
-        guard !graphDiagnosticsDone else { return }
-        graphDiagnosticsDone = true
-
-        let mainMixer = engine.mainMixerNode
-        let outHw = engine.outputNode.outputFormat(forBus: 0)
-        let sr = outHw.sampleRate > 0 ? outHw.sampleRate : 48000
-        guard let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr,
-                                      channels: 2, interleaved: false),
-              let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr,
-                                       channels: 1, interleaved: false) else { return }
-
-        // 每阶段：清图 → 搭一条活跃基础链（保证输出链有输入）→ 追加待测环境部分 → start
-        func testStage(_ stageName: String, extra: () -> Void) {
-            engine.stop()
-            detachAllNodes()
-            engine.attach(playerNode)
-            engine.attach(directMix)
-            engine.connect(playerNode, to: directMix, format: fmt)
-            engine.connect(directMix, to: mainMixer, format: fmt)
-            extra()
-            do {
-                try engine.start()
-                LogReporter.shared.log(level: "info", tag: "eq",
-                                       message: "\(stageName) start 成功 running=\(engine.isRunning)")
-                engine.stop()
-            } catch {
-                LogReporter.shared.log(level: "error", tag: "eq",
-                                       message: "\(stageName) start 失败 err=\(error)")
-            }
-        }
-
-        // 阶段 A：环境节点裸连 mainMixer（无任何输入源），验证环境节点输出连接本身
-        testStage("阶段A 环境节点裸连") {
-            engine.attach(environmentNode)
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 B：环境节点 + 一个 mono 点声源输入，验证输入连接格式
-        testStage("阶段B 环境+单mono输入") {
-            engine.attach(environmentNode)
-            engine.attach(srcMid)
-            engine.connect(srcMid, to: environmentNode, format: mono)
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 D：环境节点 + 3 个 mono 点声源（纯 mixer 直连，不接 EQ）
-        testStage("阶段D 环境+3输入") {
-            engine.attach(environmentNode)
-            for s in [srcLow, srcMid, srcHigh] {
-                engine.attach(s)
-                engine.connect(s, to: environmentNode, format: mono)
-            }
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 E：环境节点 + 6 个 mono 点声源（全部 src 直连，不接 EQ/player）
-        testStage("阶段E 环境+6输入") {
-            engine.attach(environmentNode)
-            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
-                engine.attach(s)
-                engine.connect(s, to: environmentNode, format: mono)
-            }
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 G：6 输入 + 全景 EQ 链（EQ 立体声进、mono 输出到 src），不含三分频
-        testStage("阶段G 全景EQ链") {
-            engine.attach(environmentNode)
-            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
-                engine.attach(s)
-                engine.connect(s, to: environmentNode, format: mono)
-            }
-            engine.attach(eqLowP); engine.attach(eqMidP); engine.attach(eqHighP)
-            engine.connect(playerNode, to: eqLowP, format: fmt)
-            engine.connect(eqLowP, to: srcLow, format: mono)
-            engine.connect(playerNode, to: eqMidP, format: fmt)
-            engine.connect(eqMidP, to: srcMid, format: mono)
-            engine.connect(playerNode, to: eqHighP, format: fmt)
-            engine.connect(eqHighP, to: srcHigh, format: mono)
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 H：6 输入 + 三分频全套（全立体声），不含全景 EQ
-        testStage("阶段H 三分频链") {
-            engine.attach(environmentNode)
-            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
-                engine.attach(s)
-                engine.connect(s, to: environmentNode, format: mono)
-            }
-            engine.attach(eqLow); engine.attach(eqMid); engine.attach(eqHigh)
-            engine.attach(mixLow); engine.attach(mixMid); engine.attach(mixHigh)
-            engine.attach(delayLow); engine.attach(delayHigh)
-            engine.attach(reverb); engine.attach(distortion)
-            engine.connect(playerNode, to: eqLow, format: fmt)
-            engine.connect(eqLow, to: delayLow, format: fmt)
-            engine.connect(delayLow, to: mixLow, format: fmt)
-            engine.connect(playerNode, to: eqMid, format: fmt)
-            engine.connect(eqMid, to: mixMid, format: fmt)
-            engine.connect(playerNode, to: eqHigh, format: fmt)
-            engine.connect(eqHigh, to: delayHigh, format: fmt)
-            engine.connect(delayHigh, to: mixHigh, format: fmt)
-            engine.connect(mixLow, to: reverb, format: fmt)
-            engine.connect(mixMid, to: reverb, format: fmt)
-            engine.connect(mixHigh, to: reverb, format: fmt)
-            engine.connect(reverb, to: distortion, format: fmt)
-            engine.connect(distortion, to: mainMixer, format: fmt)
-            engine.connect(environmentNode, to: mainMixer, format: fmt)
-        }
-
-        // 阶段 F：完整图但不含多轨播放器（含全景 EQ + 三分频全套），二分定位
-        detachAllNodes()
-        buildGraph(includeEnvironment: true, includeMultiTrack: false)
-        do {
-            try engine.start()
-            LogReporter.shared.log(level: "info", tag: "eq",
-                                   message: "阶段F 无多轨播放器完整图 start 成功 running=\(engine.isRunning)")
-            engine.stop()
-        } catch {
-            LogReporter.shared.log(level: "error", tag: "eq",
-                                   message: "阶段F 无多轨播放器完整图 start 失败 err=\(error)")
-        }
-
-        // 阶段 C：完整图（6 输入 + 多轨播放器），由 buildGraph 重建
-        detachAllNodes()
-        buildGraph(includeEnvironment: true)
-        do {
-            try engine.start()
-            LogReporter.shared.log(level: "info", tag: "eq",
-                                   message: "阶段C 完整图 start 成功 running=\(engine.isRunning)")
-        } catch {
-            graphValid = false
-            LogReporter.shared.log(level: "error", tag: "eq",
-                                   message: "阶段C 完整图 start 失败 err=\(error)")
-        }
+        LogReporter.shared.log(level: "info", tag: "eq", message: "engine graph 已重建 env=\(needsEnvironment)")
     }
 
     func play() {
@@ -1048,10 +895,16 @@ final class AudioEnginePlayer {
     /// engine.pause() 暂停渲染，改完再 start() 恢复；pause 保留 playerNode 已调度 segment
     /// 与进度，恢复后从原位置继续输出（无感切换）。
     private func apply(mode: Mode) {
+        let previousNeedsEnv = needsEnvironment
         self.mode = mode
         let wasRunning = engine.isRunning
         if wasRunning {
             engine.pause()
+        }
+        // 环境节点需求变化（全景 ↔ 其他模式）：图拓扑必须重建，
+        // 否则会缺环境节点，或残留无关节点导致 AUGraph 初始化失败 -10868。
+        if graphBuilt && previousNeedsEnv != needsEnvironment {
+            rebuildGraph()
         }
         // 全关
         directMix.outputVolume = 0
@@ -1258,6 +1111,13 @@ final class AudioEnginePlayer {
         isPrepared = false
         multiTrack = true
         multiTrackId = trackId
+        // 记录建图时是否已含环境节点，再切换到全景模式；
+        // 若已建的是非全景图（无环境节点），必须重建，否则多轨节点不在图中。
+        let hadEnvironment = needsEnvironment
+        self.mode = .panorama
+        if graphBuilt && !hadEnvironment {
+            rebuildGraph()
+        }
         onLoadingChanged?(true)
 
         multiTask = Task { @MainActor in
