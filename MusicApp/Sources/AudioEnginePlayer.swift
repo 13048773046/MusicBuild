@@ -137,8 +137,9 @@ final class AudioEnginePlayer {
     // MARK: 多轨状态
     /// 是否处于多轨分离模式（服务端 done 音轨）；false = 单文件链
     private var multiTrack = false
-    private var vocalsFile: AVAudioFile?
-    private var accFile: AVAudioFile?
+    /// 人声/伴奏解码后的 mono PCM buffer（标准 float32，硬件采样率），用 scheduleBuffer 调度
+    private var vocalsBuffer: AVAudioPCMBuffer?
+    private var accBuffer: AVAudioPCMBuffer?
     /// 多轨基准总帧数（取两轨较短者，避免某轨越界）
     private var multiTotalFrames: AVAudioFramePosition = 0
     /// 当前多轨曲目 id（缓存键用）
@@ -395,17 +396,13 @@ final class AudioEnginePlayer {
         // 连到 mainMixer 这种内部节点时用 interleaved 会导致 AUGraph 初始化失败 -10868。
         engine.connect(environmentNode, to: mainMixer, format: format)
 
-        // 多轨点声源 → 环境节点（6 输入的一部分，始终连接）
-        engine.connect(srcVocals, to: environmentNode, format: monoFormat)
-        engine.connect(srcAccL, to: environmentNode, format: monoFormat)
-        engine.connect(srcAccR, to: environmentNode, format: monoFormat)
-        // 多轨播放器 → 点声源（仅多轨模式）
+        // 多轨播放器直连环境节点（AVAudioPlayerNode 本身 conform AVAudioMixing，
+        // 可直接设 position/HRTF/reverbBlend，对齐官方 AVAEGamingExample，去掉 mixer 中转）
         if includeMultiTrack {
-            // 人声 → srcVocals（正前景点声源）
-            engine.connect(playerVocals, to: srcVocals, format: monoFormat)
-            // 伴奏 → srcAccL / srcAccR（左后、右后点声源）
-            engine.connect(playerAcc, to: srcAccL, format: monoFormat)
-            engine.connect(playerAcc, to: srcAccR, format: monoFormat)
+            // 人声 → 环境（正前景点声源）
+            engine.connect(playerVocals, to: environmentNode, format: monoFormat)
+            // 伴奏 → 环境（高 reverbBlend 做空间包围）
+            engine.connect(playerAcc, to: environmentNode, format: monoFormat)
         }
     }
 
@@ -773,11 +770,8 @@ final class AudioEnginePlayer {
         playerVocals.stop()
         playerAcc.stop()
         multiGen += 1
-        srcVocals.outputVolume = 0
-        srcAccL.outputVolume = 0
-        srcAccR.outputVolume = 0
-        vocalsFile = nil
-        accFile = nil
+        vocalsBuffer = nil
+        accBuffer = nil
         multiTotalFrames = 0
         multiTrackId = nil
         multiTrack = false
@@ -850,8 +844,8 @@ final class AudioEnginePlayer {
 
     func seek(toSeconds seconds: Double) {
         if multiTrack {
-            guard let vf = vocalsFile, multiTotalFrames > 0 else { return }
-            let target = AVAudioFramePosition(seconds * vf.processingFormat.sampleRate)
+            guard let vf = vocalsBuffer, multiTotalFrames > 0 else { return }
+            let target = AVAudioFramePosition(seconds * vf.format.sampleRate)
             let clamped = max(0, min(target, multiTotalFrames - 1))
             pausedFrame = clamped
             if isPlaying {
@@ -1077,21 +1071,78 @@ final class AudioEnginePlayer {
         srcHigh.outputVolume = 0
 
         // 人声：正前方、距离最近、混响少 → 前景 C 位，贴耳清晰
-        srcVocals.position = AVAudio3DPoint(x: 0, y: 0, z: -1.5)
-        srcVocals.renderingAlgorithm = .HRTF
-        srcVocals.reverbBlend = 10
-        srcVocals.outputVolume = 1.0
+        playerVocals.position = AVAudio3DPoint(x: 0, y: 0, z: -1.5)
+        playerVocals.renderingAlgorithm = .HRTF
+        playerVocals.reverbBlend = 10
+        playerVocals.volume = 1.0
 
-        // 伴奏：左后 / 右后两个对称点声源，把伴奏包围到两侧与身后
-        srcAccL.position = AVAudio3DPoint(x: -1.2, y: 0, z: 0.9)
-        srcAccL.renderingAlgorithm = .HRTF
-        srcAccL.reverbBlend = 38
-        srcAccL.outputVolume = 0.55
+        // 伴奏：稍靠后、高混响，靠环境混响把伴奏空间化包围，电平略低于人声以突出前景
+        playerAcc.position = AVAudio3DPoint(x: 0, y: 0, z: 0.9)
+        playerAcc.renderingAlgorithm = .HRTF
+        playerAcc.reverbBlend = 38
+        playerAcc.volume = 0.85
+    }
 
-        srcAccR.position = AVAudio3DPoint(x: 1.2, y: 0, z: 0.9)
-        srcAccR.renderingAlgorithm = .HRTF
-        srcAccR.reverbBlend = 38
-        srcAccR.outputVolume = 0.55
+    /// 读取音频文件并转成 mono float32（目标采样率）的 PCM buffer。
+    /// 用 commonFormat 初始化器强制解码（容器/编码不支持会明确抛错，而非静默无声），
+    /// 再用 AVAudioConverter 完成立体声→mono 下混与采样率转换。
+    private static func loadMonoBuffer(url: URL, targetSampleRate: Double) throws -> AVAudioPCMBuffer {
+        // 强制标准 float32 nonInterleaved 解码（对齐官方 AVAEGamingExample 的文件打开方式）
+        let file = try AVAudioFile(forReading: url,
+                                   commonFormat: .pcmFormatFloat32,
+                                   interleaved: false)
+        let srcFrames = AVAudioFrameCount(file.length)
+        guard srcFrames > 0 else {
+            throw NSError(domain: "AudioEngine", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "空音频文件"])
+        }
+        guard let inBuffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                              frameCapacity: srcFrames) else {
+            throw NSError(domain: "AudioEngine", code: -2)
+        }
+        try file.read(into: inBuffer)
+
+        // 目标 mono 格式
+        guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                            sampleRate: targetSampleRate,
+                                            channels: 1, interleaved: false) else {
+            throw NSError(domain: "AudioEngine", code: -3)
+        }
+        // 输入已是 mono 且采样率一致：直接返回
+        if file.processingFormat.channelCount == 1,
+           file.processingFormat.sampleRate == targetSampleRate {
+            return inBuffer
+        }
+        guard let converter = AVAudioConverter(from: file.processingFormat, to: outFormat) else {
+            throw NSError(domain: "AudioEngine", code: -4,
+                          userInfo: [NSLocalizedDescriptionKey: "无法创建音频转换器"])
+        }
+        let ratio = targetSampleRate / file.processingFormat.sampleRate
+        let capacity = AVAudioFrameCount((Double(srcFrames) * ratio).rounded(.up)) + 1
+        guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: capacity) else {
+            throw NSError(domain: "AudioEngine", code: -5)
+        }
+        var pulled = false
+        var convError: NSError?
+        let status = converter.convert(to: outBuffer, error: &convError) { _, outStatus in
+            if pulled {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            pulled = true
+            outStatus.pointee = .haveData
+            return inBuffer
+        }
+        if let convError { throw convError }
+        guard status != .error else {
+            throw NSError(domain: "AudioEngine", code: -6,
+                          userInfo: [NSLocalizedDescriptionKey: "音频转换失败"])
+        }
+        guard outBuffer.frameLength > 0 else {
+            throw NSError(domain: "AudioEngine", code: -7,
+                          userInfo: [NSLocalizedDescriptionKey: "转换后无音频数据"])
+        }
+        return outBuffer
     }
 
     /// 下载单个分离音轨（缓存优先），返回本地文件 URL；失败返回 nil。
@@ -1134,15 +1185,19 @@ final class AudioEnginePlayer {
                 self.onLoadingChanged?(false); self.onLoadFailed?(); return
             }
             do {
-                let vf = try AVAudioFile(forReading: vLocal)
-                let af = try AVAudioFile(forReading: aLocal)
-                self.vocalsFile = vf
-                self.accFile = af
-                self.multiTotalFrames = min(vf.length, af.length)
-                self.configureMultiTrackSources()
+                // 先确保图已建、引擎运行，拿到硬件采样率（fileFormat 在 buildGraph 后已设置）
+                self.ensureGraphBuilt()
                 guard self.ensureEngineRunning() else {
                     self.onLoadingChanged?(false); self.onLoadFailed?(); return
                 }
+                let targetSR = self.fileFormat?.sampleRate ?? 48000
+                // 解码并下混为 mono PCM buffer（不支持会在此明确抛错，不再静默）
+                let vBuf = try Self.loadMonoBuffer(url: vLocal, targetSampleRate: targetSR)
+                let aBuf = try Self.loadMonoBuffer(url: aLocal, targetSampleRate: targetSR)
+                self.vocalsBuffer = vBuf
+                self.accBuffer = aBuf
+                self.multiTotalFrames = AVAudioFramePosition(min(vBuf.frameLength, aBuf.frameLength))
+                self.configureMultiTrackSources()
                 self.scheduleMulti(from: 0, at: nil)
                 self.isPrepared = true
                 self.onLoadingChanged?(false)
@@ -1171,22 +1226,37 @@ final class AudioEnginePlayer {
 
     // MARK: - 多轨同步调度与播放
 
+    /// 从完整 mono buffer 中切出从 start 开始、长度 count 的子 buffer（共享同一格式）。
+    private func sliceBuffer(_ src: AVAudioPCMBuffer, start: AVAudioFramePosition,
+                             count: AVAudioFrameCount) -> AVAudioPCMBuffer? {
+        guard let out = AVAudioPCMBuffer(pcmFormat: src.format, frameCapacity: count),
+              let srcData = src.floatChannelData, let dstData = out.floatChannelData else { return nil }
+        let offset = Int(start)
+        for ch in 0..<Int(src.format.channelCount) {
+            dstData[ch].update(from: srcData[ch].advanced(by: offset), count: Int(count))
+        }
+        out.frameLength = count
+        return out
+    }
+
     /// 同步调度两条音轨（从同一帧开始），统一 hostTime 保证 sample-accurate。
     private func scheduleMulti(from frame: AVAudioFramePosition, at when: AVAudioTime?) {
-        guard let vf = vocalsFile, let af = accFile, multiTotalFrames > 0 else { return }
+        guard let vBuf = vocalsBuffer, let aBuf = accBuffer, multiTotalFrames > 0 else { return }
         playerVocals.stop()
         playerAcc.stop()
         multiGen += 1
         let gen = multiGen
         let count = AVAudioFrameCount(multiTotalFrames - frame)
-        guard count > 0 else { return }
-        playerVocals.scheduleSegment(vf, startingFrame: frame, frameCount: count, at: when) {
+        guard count > 0,
+              let vSlice = sliceBuffer(vBuf, start: frame, count: count),
+              let aSlice = sliceBuffer(aBuf, start: frame, count: count) else { return }
+        playerVocals.scheduleBuffer(vSlice, at: when, options: []) {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.multiGen == gen, self.isPlaying else { return }
                 self.onCompletion?()
             }
         }
-        playerAcc.scheduleSegment(af, startingFrame: frame, frameCount: count, at: when)
+        playerAcc.scheduleBuffer(aSlice, at: when, options: [])
     }
 
     /// 多轨世代号（同 scheduleGen，区分完成/打断）
@@ -1194,15 +1264,13 @@ final class AudioEnginePlayer {
 
     /// 从指定位置起播（统一 hostTime 同步两个播放节点）。
     func playMultiFrom(seconds: Double, autoPlay: Bool = true) {
-        guard isPrepared, multiTotalFrames > 0, let vf = vocalsFile else { return }
-        let target = AVAudioFramePosition(seconds * vf.processingFormat.sampleRate)
+        guard isPrepared, multiTotalFrames > 0, let vBuf = vocalsBuffer else { return }
+        let target = AVAudioFramePosition(seconds * vBuf.format.sampleRate)
         let clamped = max(0, min(target, multiTotalFrames - 1))
         pausedFrame = clamped
         guard ensureEngineRunning() else { return }
         if autoPlay {
-            // sample-accurate：两个 segment 指定同一未来渲染时间，再 play() 启动节点。
-            // 注意：不能用 at:nil schedule 再 play(at:future)——at:nil 的事件会落在
-            // 节点过去时间线，启动后被错过，导致无声。
+            // sample-accurate：两个 buffer 指定同一未来渲染时间，再 play() 启动节点。
             let hostTime = futureHostTime(seconds: 0.15)
             let when = AVAudioTime(hostTime: hostTime)
             scheduleMulti(from: clamped, at: when)
@@ -1230,8 +1298,8 @@ final class AudioEnginePlayer {
 
     private func currentFrame() -> AVAudioFramePosition {
         if multiTrack {
-            guard let vf = vocalsFile else { return pausedFrame }
-            let sr = vf.processingFormat.sampleRate
+            guard let vf = vocalsBuffer else { return pausedFrame }
+            let sr = vf.format.sampleRate
             guard isPlaying, sr > 0 else { return pausedFrame }
             let elapsed = CACurrentMediaTime() - playStartTime
             guard elapsed >= 0, elapsed.isFinite else { return playStartFrame }
@@ -1247,8 +1315,8 @@ final class AudioEnginePlayer {
 
     func currentSeconds() -> Double {
         if multiTrack {
-            guard let vf = vocalsFile else { return 0 }
-            let sr = vf.processingFormat.sampleRate
+            guard let vf = vocalsBuffer else { return 0 }
+            let sr = vf.format.sampleRate
             return sr > 0 ? Double(currentFrame()) / sr : 0
         }
         guard let format = fileFormat, format.sampleRate > 0 else { return 0 }
@@ -1257,8 +1325,8 @@ final class AudioEnginePlayer {
 
     func durationSeconds() -> Double {
         if multiTrack {
-            guard let vf = vocalsFile else { return 0 }
-            let sr = vf.processingFormat.sampleRate
+            guard let vf = vocalsBuffer else { return 0 }
+            let sr = vf.format.sampleRate
             return sr > 0 ? Double(multiTotalFrames) / sr : 0
         }
         guard let format = fileFormat, format.sampleRate > 0 else { return 0 }
