@@ -71,7 +71,14 @@ enum LyricModeStore {
 /// 暂停/未加载不受影响（要求 isPlaying 且管理侧已有进度才兜底）。
 func lyricDisplayTime(_ progress: Double, isPreview: Bool = false) -> Double {
     let pm = PlayerManager.shared
-    if pm.usingEngine || isPreview { return progress }
+    // 拖动条 scrub 预览：以外部进度为准
+    if isPreview { return progress }
+    // 引擎模式：读引擎实时时钟（CACurrentMediaTime 平滑），避免 0.25s 阶梯导致逐字高亮一卡一卡
+    if pm.usingEngine {
+        let eng = pm.enginePlayer.currentSeconds()
+        if eng > 0 { return eng }
+        return progress
+    }
     let now = CMTimeGetSeconds(pm.player.currentTime())
     let safe = now.isFinite ? now : 0
     if safe == 0 && pm.isPlaying && pm.progress > 0 {

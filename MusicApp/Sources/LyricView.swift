@@ -210,7 +210,15 @@ struct LyricPreview: View {
     /// 2026-10-19 兜底：播放中但 AVPlayer 时间仍为 0（首包缓冲/切歌瞬间/currentItem
     /// 未就绪）时用管理侧进度兜底，歌词不熄屏。
     private func displayTime() -> Double {
-        if PlayerManager.shared.usingEngine || isPreview { return progress }
+        // 拖动条 scrub 预览：以外部进度为准
+        if isPreview { return progress }
+        // 引擎模式：直接读引擎实时时钟（CACurrentMediaTime 连续平滑），
+        // 不能用 0.25s 阶梯的 progress——否则逐字 mask 每 0.25s 才跳一次，表现为高亮一卡一卡。
+        if PlayerManager.shared.usingEngine {
+            let eng = PlayerManager.shared.enginePlayer.currentSeconds()
+            if eng > 0 { return eng }
+            return progress   // 引擎尚未起/缓冲期，用管理侧进度兜底
+        }
         let now = CMTimeGetSeconds(PlayerManager.shared.player.currentTime())
         let safe = now.isFinite ? now : 0
         if safe == 0 && PlayerManager.shared.isPlaying && PlayerManager.shared.progress > 0 {

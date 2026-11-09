@@ -78,6 +78,11 @@ final class PlayerManager: NSObject, ObservableObject {
     @Published var loadFailed: Bool = false
     /// 全局音效选择（切歌不重置）
     @Published var selectedEQ: String = "原音"
+    /// 当前歌曲后端是否已完成全景分离（done）。
+    /// 音效弹窗据此决定是否显示「全景音效」：未完成则隐藏，避免用户选了却无声。
+    @Published var panoramaAvailable = false
+    /// 全景可用性查询任务（切歌时取消旧任务，防止迟到结果覆盖新歌曲）
+    private var panoramaCheckTask: Task<Void, Never>?
     /// 侧边栏听歌模式：默认模式 / 我的喜欢 / 新鲜模式
     @Published var listenMode: ListenMode = .normal
     /// 当前正在播放的场景音乐名（nil = 非场景）。
@@ -522,6 +527,23 @@ final class PlayerManager: NSObject, ObservableObject {
     var current: Track? {
         guard queue.indices.contains(currentIndex) else { return nil }
         return queue[currentIndex]
+    }
+
+    /// 切歌后查询当前歌曲的全景分离状态，更新 panoramaAvailable。
+    /// 不触发分离（trigger=false）：仅查询；未完成的歌由播放流程按需触发。
+    func refreshPanoramaAvailability() {
+        guard let tid = current?.id else {
+            panoramaAvailable = false
+            return
+        }
+        panoramaCheckTask?.cancel()
+        panoramaCheckTask = Task { [weak self] in
+            let info = await API.stemInfo(for: tid, trigger: false)
+            guard !Task.isCancelled, let self, self.current?.id == tid else { return }
+            await MainActor.run {
+                self.panoramaAvailable = (info?.status == "done")
+            }
+        }
     }
     static var trackIdAssocKey: UInt8 = 0
     var sessions: [ListenMode: ModeSession] = [:]

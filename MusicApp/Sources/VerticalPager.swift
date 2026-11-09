@@ -313,11 +313,18 @@ private struct EQBSheet: View {
     private let columns = [GridItem(.flexible(), spacing: 12),
                            GridItem(.flexible(), spacing: 12)]
 
+    /// 当前可显示的音效：后端未完成全景分离时，隐藏「全景音效」，避免选了却无声。
+    private var availableOptions: [EQOption] {
+        eqOptions.filter { opt in
+            opt.name != "全景音效" || player.panoramaAvailable
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(eqOptions) { opt in
+                    ForEach(availableOptions) { opt in
                         Button {
                             // 直接应用音效（引擎模式间切换不重载，进度/歌词连续）
                             player.applyEQ(opt.name)

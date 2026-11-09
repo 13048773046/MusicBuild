@@ -446,6 +446,8 @@ extension PlayerManager {
             player.pause()
         }
         enginePlayer.stop()
+        // 切歌：查询当前歌曲后端全景分离状态，决定音效弹窗是否显示「全景音效」
+        refreshPanoramaAvailability()
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -488,6 +490,14 @@ extension PlayerManager {
             await MainActor.run {
                 // 切歌后旧任务迟到响应直接丢弃，防止覆盖新歌状态
                 guard self.current?.id == trackId else { return }
+                // 全景未就绪（后端还没分离这首歌）：自动切回原音，走 AVPlayer，
+                // 而不是保留全景选择走单文件 HRTF。trigger 已让后端后台分离，下次播放即生效。
+                if engineMode == .panorama, stem?.status != "done" {
+                    self.selectedEQ = "原音"
+                    self.usingEngine = false
+                    self.enginePlayer.stop()
+                    self.showEQToast("该歌曲暂无全景，已恢复原音")
+                }
                 if self.usingEngine {
                     self.enginePlayer.onProgress = { [weak self] cur, dur in
                         guard let self = self else { return }
