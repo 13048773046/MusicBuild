@@ -804,6 +804,50 @@ final class AudioEnginePlayer {
             engine.connect(environmentNode, to: mainMixer, format: fmt)
         }
 
+        // 阶段 G：6 输入 + 全景 EQ 链（EQ 立体声进、mono 输出到 src），不含三分频
+        testStage("阶段G 全景EQ链") {
+            engine.attach(environmentNode)
+            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
+                engine.attach(s)
+                engine.connect(s, to: environmentNode, format: mono)
+            }
+            engine.attach(eqLowP); engine.attach(eqMidP); engine.attach(eqHighP)
+            engine.connect(playerNode, to: eqLowP, format: fmt)
+            engine.connect(eqLowP, to: srcLow, format: mono)
+            engine.connect(playerNode, to: eqMidP, format: fmt)
+            engine.connect(eqMidP, to: srcMid, format: mono)
+            engine.connect(playerNode, to: eqHighP, format: fmt)
+            engine.connect(eqHighP, to: srcHigh, format: mono)
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
+        // 阶段 H：6 输入 + 三分频全套（全立体声），不含全景 EQ
+        testStage("阶段H 三分频链") {
+            engine.attach(environmentNode)
+            for s in [srcLow, srcMid, srcHigh, srcVocals, srcAccL, srcAccR] {
+                engine.attach(s)
+                engine.connect(s, to: environmentNode, format: mono)
+            }
+            engine.attach(eqLow); engine.attach(eqMid); engine.attach(eqHigh)
+            engine.attach(mixLow); engine.attach(mixMid); engine.attach(mixHigh)
+            engine.attach(delayLow); engine.attach(delayHigh)
+            engine.attach(reverb); engine.attach(distortion)
+            engine.connect(playerNode, to: eqLow, format: fmt)
+            engine.connect(eqLow, to: delayLow, format: fmt)
+            engine.connect(delayLow, to: mixLow, format: fmt)
+            engine.connect(playerNode, to: eqMid, format: fmt)
+            engine.connect(eqMid, to: mixMid, format: fmt)
+            engine.connect(playerNode, to: eqHigh, format: fmt)
+            engine.connect(eqHigh, to: delayHigh, format: fmt)
+            engine.connect(delayHigh, to: mixHigh, format: fmt)
+            engine.connect(mixLow, to: reverb, format: fmt)
+            engine.connect(mixMid, to: reverb, format: fmt)
+            engine.connect(mixHigh, to: reverb, format: fmt)
+            engine.connect(reverb, to: distortion, format: fmt)
+            engine.connect(distortion, to: mainMixer, format: fmt)
+            engine.connect(environmentNode, to: mainMixer, format: fmt)
+        }
+
         // 阶段 F：完整图但不含多轨播放器（含全景 EQ + 三分频全套），二分定位
         detachAllNodes()
         buildGraph(includeEnvironment: true, includeMultiTrack: false)
