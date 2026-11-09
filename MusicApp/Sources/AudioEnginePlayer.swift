@@ -375,17 +375,19 @@ final class AudioEnginePlayer {
         guard includeEnvironment else { return }
 
         // 全景 HRTF 链：
-        // playerNode → 全景 EQ（立体声）→ 点声源（mono downmix）→ 环境节点（mono 才空间化）
+        // playerNode → 全景 EQ（立体声，EQ 输入输出保持同通道数）
+        // → 点声源 mixer（由 mixer 做立体声→mono 下混，effect 单元不做跨通道转换）
+        // → 环境节点（mono 才空间化）
         engine.connect(playerNode, to: eqLowP, format: format)
-        engine.connect(eqLowP, to: srcLow, format: monoFormat)
+        engine.connect(eqLowP, to: srcLow, format: format)
         engine.connect(srcLow, to: environmentNode, format: monoFormat)
 
         engine.connect(playerNode, to: eqMidP, format: format)
-        engine.connect(eqMidP, to: srcMid, format: monoFormat)
+        engine.connect(eqMidP, to: srcMid, format: format)
         engine.connect(srcMid, to: environmentNode, format: monoFormat)
 
         engine.connect(playerNode, to: eqHighP, format: format)
-        engine.connect(eqHighP, to: srcHigh, format: monoFormat)
+        engine.connect(eqHighP, to: srcHigh, format: format)
         engine.connect(srcHigh, to: environmentNode, format: monoFormat)
 
         // 环境节点连「内部主混音」必须用 nonInterleaved 处理格式（与其他内部节点一致）。
